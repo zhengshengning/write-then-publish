@@ -35,7 +35,7 @@
     <meta name="twitter:description" content="一份 Markdown，排成小红书图文卡片或公众号长文。实况照片在浏览器本地合成，生成过程不上传原视频。" />
     <meta name="twitter:image" content="https://fawen.fun/brand/og-image.png" />
     <meta name="twitter:creator" content="@iamcora13" />
-    <link rel="stylesheet" href="src/styles.css?v=20261030-size-menu" />
+    <link rel="stylesheet" href="src/styles.css?v=20261030-save-to-project" />
   </head>
   <body class="entry-choice-pending">
     <main class="workspace">
@@ -46,6 +46,9 @@
         <div class="history-drawer">
           <div class="history-head">
             <span>原稿列表</span>
+            <button id="syncFolderDraftsBtn" class="icon-button ghost history-folder-sync" type="button" title="重新载入项目 drafts/ 文件夹" aria-label="重新载入项目 drafts/ 文件夹" hidden>
+              <i data-lucide="folder-sync"></i>
+            </button>
             <button id="historyCloseBtn" class="icon-button ghost" type="button" title="收起原稿列表" aria-label="收起原稿列表">
               <i data-lucide="panel-left-close"></i>
             </button>
@@ -335,6 +338,19 @@
               </div>
             </details>
 
+            <details id="bgThemeMenu" class="tool-menu bg-theme-menu">
+              <summary class="tool-button" title="背景主题" aria-label="背景主题">
+                <i data-lucide="swatch-book"></i>
+              </summary>
+              <div class="tool-popover bg-theme-popover">
+                <div class="color-guide">
+                  <strong>背景主题</strong>
+                  <span>一键切换卡片背景、文字色和强调色，之后仍可在设计设置里微调。</span>
+                </div>
+                <div id="bgThemeGrid" class="bg-theme-grid" role="group" aria-label="背景主题"></div>
+              </div>
+            </details>
+
             <details class="tool-menu settings-menu">
               <summary class="tool-button" title="设计设置" aria-label="设计设置">
                 <i data-lucide="sliders-horizontal"></i>
@@ -352,6 +368,16 @@
                   <label>
                     背景色
                     <input id="bgColorInput" type="color" value="#ffffff" />
+                  </label>
+                  <label>
+                    背景纹理
+                    <select id="bgPatternInput">
+                      <option value="none">无</option>
+                      <option value="grid">网格</option>
+                      <option value="lines">横线</option>
+                      <option value="dots">点阵</option>
+                      <option value="gradient">渐变</option>
+                    </select>
                   </label>
                   <label>
                     字号
@@ -414,7 +440,10 @@
                   下载发布长图<small>长图 ZIP · 含可编辑原稿</small>
                 </button>
                 <button id="portableExportBtn" type="button">
-                  保存可编辑原稿<small>日期命名 ZIP · 保留 GIF 与视频原件</small>
+                  下载ZIP原稿<small>日期命名 ZIP · 保留 GIF 与视频原件</small>
+                </button>
+                <button id="saveToProjectBtn" type="button" hidden>
+                  保存到项目<small>存进 drafts/ · 连同图片、GIF 与视频</small>
                 </button>
               </div>
             </details>
@@ -1422,6 +1451,6 @@
       }
     </script>
     <script src="src/default-avatar.js?v=20261030-luffy"></script>
-    <script src="src/app.js?v=20261030-size-menu"></script>
+    <script src="src/app.js?v=20261030-save-to-project"></script>
   </body>
 </html>

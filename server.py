@@ -23,6 +23,7 @@ from html.parser import HTMLParser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
 
 ROOT = Path(__file__).resolve().parent
@@ -1062,6 +1063,215 @@ def sync_wechat_draft(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+PROJECT_DRAFTS_DIR = ROOT / "drafts"
+MAX_PROJECT_DRAFTS = 200
+MAX_PROJECT_DRAFT_BYTES = 2 * 1024 * 1024
+FRONT_MATTER_PATTERN = re.compile(r"\A---[ \t]*\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|\Z)", re.S)
+
+
+def split_front_matter(text: str) -> tuple[dict[str, str], str]:
+    match = FRONT_MATTER_PATTERN.match(text)
+    if not match:
+        return {}, text
+    meta: dict[str, str] = {}
+    for line in match.group(1).splitlines():
+        key, sep, value = line.partition(":")
+        if sep and key.strip():
+            value = value.strip()
+            if value.startswith('"'):
+                try:
+                    value = str(json.loads(value))
+                except json.JSONDecodeError:
+                    value = value.strip('"')
+            meta[key.strip().lower()] = value.strip("'")
+    return meta, text[match.end():]
+
+
+def front_matter_title_line(title: str) -> str:
+    # 普通标题原样写；含冒号、引号等 YAML 特殊字符时用双引号转义。
+    if re.fullmatch(r"[^\s:#\"'{}\[\],&*!|>%@`-][^:#\"\n]*", title):
+        return f"title: {title}"
+    return f"title: {json.dumps(title, ensure_ascii=False)}"
+
+
+def project_draft_markdown(directory: Path) -> Path | None:
+    """The draft's .md inside its folder: <folder>.md, else index.md, else the only .md there."""
+    candidates = [
+        path for path in sorted(directory.glob("*.md"))
+        if not path.name.startswith(".") and path.name.lower() != "readme.md" and path.is_file() and not path.is_symlink()
+    ]
+    for preferred in (f"{directory.name}.md", "index.md"):
+        match = next((path for path in candidates if path.name == preferred), None)
+        if match:
+            return match
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def project_draft_dir(name: str) -> Path:
+    if not name or name != Path(name).name or name.startswith(".") or name in {"assets", ".."}:
+        raise ValueError("草稿文件夹名无效。")
+    directory = PROJECT_DRAFTS_DIR / name
+    if directory.is_symlink() or not directory.is_dir() or directory.resolve().parent != PROJECT_DRAFTS_DIR.resolve():
+        raise FileNotFoundError(name)
+    return directory
+
+
+def project_draft_path(file: str) -> Path:
+    """Only an existing drafts/<folder>/<draft>.md can be written; nothing outside the draft folder."""
+    parts = str(file or "").split("/")
+    if len(parts) != 2 or not parts[1].lower().endswith(".md") or parts[1] != Path(parts[1]).name or parts[1].startswith("."):
+        raise ValueError("草稿文件名无效。")
+    if parts[1].lower() == "readme.md":
+        raise ValueError("说明文件不能作为草稿写入。")
+    directory = project_draft_dir(parts[0])
+    path = directory / parts[1]
+    if path.is_symlink() or not path.is_file():
+        raise FileNotFoundError(file)
+    return path
+
+
+MAX_PROJECT_DRAFT_ASSET_BYTES = 350 * 1024 * 1024
+PROJECT_DRAFT_ASSET_EXTENSIONS = {
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".heic", ".heif", ".bmp", ".svg",
+    ".mov", ".mp4", ".m4v", ".webm",
+}
+
+
+def write_project_draft_raw_asset(file: str, relative: str, stream: Any, length: int) -> tuple[int, dict[str, Any]]:
+    """Stream one image or video into drafts/<folder>/assets/; the body is the raw file."""
+    try:
+        directory = project_draft_path(file).parent
+    except FileNotFoundError:
+        return 404, {"ok": False, "missing": True, "error": "drafts/ 里已经没有这个草稿。"}
+    match = re.fullmatch(r"assets/([^/\\\x00-\x1f]+)", str(relative or ""))
+    if not match or match.group(1).startswith(".") or Path(match.group(1)).suffix.lower() not in PROJECT_DRAFT_ASSET_EXTENSIONS:
+        raise ValueError("素材路径或格式无效。")
+    assets = directory / "assets"
+    if assets.is_symlink():
+        raise ValueError("assets/ 不能是符号链接。")
+    assets.mkdir(exist_ok=True)
+    target = assets / match.group(1)
+    if target.is_symlink() or (target.exists() and not target.is_file()):
+        raise ValueError("素材路径无效。")
+    with tempfile.NamedTemporaryFile("wb", dir=assets, prefix=".tmp-", delete=False) as handle:
+        temp_path = Path(handle.name)
+        try:
+            remaining = length
+            while remaining > 0:
+                chunk = stream.read(min(remaining, 1024 * 1024))
+                if not chunk:
+                    raise ValueError("素材上传不完整。")
+                handle.write(chunk)
+                remaining -= len(chunk)
+        except Exception:
+            handle.close()
+            temp_path.unlink(missing_ok=True)
+            raise
+    os.chmod(temp_path, 0o644)
+    os.replace(temp_path, target)
+    return 200, {"ok": True, "path": f"assets/{target.name}", "size": length}
+
+
+def project_draft_body(payload: dict[str, Any]) -> str:
+    content = str(payload.get("content", "")).replace("\r\n", "\n")
+    if len(content.encode("utf-8")) > MAX_PROJECT_DRAFT_BYTES:
+        raise ValueError("草稿超过 2MB，未写回。")
+    return content if content.endswith("\n") or not content else content + "\n"
+
+
+def project_draft_header(meta_lines: list[str], title: str, stem: str, has_front_matter: bool) -> str:
+    lines = [line for line in meta_lines if line.partition(":")[0].strip().lower() != "title"]
+    # 没有 front matter、标题就是文件名时，不额外加 front matter。
+    if title and (has_front_matter or title != stem):
+        lines.insert(0, front_matter_title_line(title))
+    return "---\n" + "\n".join(lines) + "\n---\n\n" if lines else ""
+
+
+def project_draft_file_name(title: str) -> str:
+    stem = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', " ", title).strip().lstrip(".").strip()
+    stem = re.sub(r"\s+", " ", stem)[:60].strip() or "未命名原稿"
+    return "未命名原稿" if stem.lower() == "readme" else stem
+
+
+def create_project_draft(payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+    """Add a web draft as a new drafts/<标题>/<标题>.md folder; never reuses an existing folder."""
+    if PROJECT_DRAFTS_DIR.is_symlink():
+        raise ValueError("drafts/ 不能是符号链接。")
+    PROJECT_DRAFTS_DIR.mkdir(exist_ok=True)
+    title = str(payload.get("title", "")).strip().replace("\n", " ")
+    body = project_draft_body(payload)
+    stem = project_draft_file_name(title or str(payload.get("fallbackName", "")))
+    for index in range(1, 1000):
+        directory = PROJECT_DRAFTS_DIR / (stem if index == 1 else f"{stem}-{index}")
+        try:
+            directory.mkdir()
+        except FileExistsError:
+            continue
+        path = directory / f"{directory.name}.md"
+        try:
+            path.write_text(project_draft_header([], title, directory.name, False) + body, encoding="utf-8")
+        except Exception:
+            shutil.rmtree(directory, ignore_errors=True)
+            raise
+        os.chmod(path, 0o644)
+        return 200, {"ok": True, "file": f"{directory.name}/{path.name}", "mtime": int(path.stat().st_mtime * 1000)}
+    raise ValueError("同名草稿过多，请换个标题。")
+
+
+def save_project_draft(payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+    if payload.get("create") is True:
+        return create_project_draft(payload)
+    try:
+        path = project_draft_path(str(payload.get("file", "")))
+    except FileNotFoundError:
+        return 404, {"ok": False, "missing": True, "error": "drafts/ 里已经没有这个草稿。"}
+    stat = path.stat()
+    current_mtime = int(stat.st_mtime * 1000)
+    if payload.get("force") is not True and current_mtime != int(payload.get("baseMtime") or 0):
+        return 409, {"ok": False, "conflict": True, "mtime": current_mtime, "error": "本地文件在载入后也被修改过。"}
+    body = project_draft_body(payload)
+
+    match = FRONT_MATTER_PATTERN.match(path.read_text(encoding="utf-8-sig"))
+    title = str(payload.get("title", "")).strip().replace("\n", " ")
+    header = project_draft_header(match.group(1).splitlines() if match else [], title, path.stem, bool(match))
+
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, prefix=".tmp-", suffix=".md", delete=False) as handle:
+        handle.write(header + body)
+        temp_path = Path(handle.name)
+    os.chmod(temp_path, stat.st_mode & 0o777)
+    os.replace(temp_path, path)
+    return 200, {"ok": True, "mtime": int(path.stat().st_mtime * 1000)}
+
+
+def list_project_drafts() -> dict[str, Any]:
+    """List drafts/<folder>/<draft>.md for the web app; one folder per draft, symlinks are skipped."""
+    drafts: list[dict[str, Any]] = []
+    if not PROJECT_DRAFTS_DIR.is_dir():
+        return {"ok": True, "drafts": drafts}
+    for directory in sorted(PROJECT_DRAFTS_DIR.iterdir()):
+        if len(drafts) >= MAX_PROJECT_DRAFTS:
+            break
+        try:
+            project_draft_dir(directory.name)
+            path = project_draft_markdown(directory)
+            if not path:
+                continue
+            stat = path.stat()
+            if stat.st_size > MAX_PROJECT_DRAFT_BYTES:
+                continue
+            text = path.read_text(encoding="utf-8-sig")
+        except (OSError, ValueError, UnicodeDecodeError):
+            continue
+        meta, body = split_front_matter(text)
+        drafts.append({
+            "file": f"{directory.name}/{path.name}",
+            "title": meta.get("title") or directory.name,
+            "mtime": int(stat.st_mtime * 1000),
+            "content": body.lstrip("\r\n"),
+        })
+    return {"ok": True, "drafts": drafts}
+
+
 class AppHandler(SimpleHTTPRequestHandler):
     server_version = "WriteThenPublish/1.0"
 
@@ -1180,6 +1390,9 @@ main{{max-width:560px;margin:0 auto;padding:28px 20px 48px}}.card{{background:#f
         if path == "/api/live-photo/status":
             self.send_json(200, live_photo_status())
             return
+        if path == "/api/drafts":
+            self.send_json(200, list_project_drafts())
+            return
         super().do_GET()
 
     def do_POST(self) -> None:
@@ -1192,6 +1405,8 @@ main{{max-width:560px;margin:0 auto;padding:28px 20px 48px}}.card{{background:#f
             "/api/live-photo/batch",
             "/api/live-photo/batch-reveal",
             "/api/live-photo/batch-airdrop",
+            "/api/drafts/save",
+            "/api/drafts/asset",
         }:
             self.send_json(404, {"ok": False, "error": "接口不存在。"})
             return
@@ -1210,11 +1425,15 @@ main{{max-width:560px;margin:0 auto;padding:28px 20px 48px}}.card{{background:#f
             request_limit = MAX_LIVE_PHOTO_REQUEST_BYTES + MAX_LIVE_OVERLAY_BYTES + 1024 * 1024
         elif path == "/api/live-photo/batch":
             request_limit = MAX_BATCH_EXPORT_BYTES
+        elif path == "/api/drafts/asset":
+            request_limit = MAX_PROJECT_DRAFT_ASSET_BYTES
         else:
             request_limit = MAX_REQUEST_BYTES
         if length <= 0 or length > request_limit:
             if path == "/api/live-photo/render":
                 message = "视频上传内容为空或超过 350MB。"
+            elif path == "/api/drafts/asset":
+                message = "素材为空或超过 350MB。"
             elif path == "/api/live-photo/batch":
                 message = "批量导出内容为空或超过 300MB。"
             else:
@@ -1243,6 +1462,14 @@ main{{max-width:560px;margin:0 auto;padding:28px 20px 48px}}.card{{background:#f
                     result = render_live_photo(form) if path == "/api/live-photo/render" else prepare_live_photo_batch(form)
                 finally:
                     LIVE_PHOTO_LOCK.release()
+            elif path == "/api/drafts/asset":
+                query = parse_qs(urlsplit(self.path).query)
+                status, result = write_project_draft_raw_asset(
+                    (query.get("file") or [""])[0], (query.get("path") or [""])[0], self.rfile, length
+                )
+                if status != 200:
+                    self.send_json(status, result)
+                    return
             else:
                 payload = json.loads(self.rfile.read(length).decode("utf-8"))
                 if not isinstance(payload, dict):
@@ -1255,6 +1482,11 @@ main{{max-width:560px;margin:0 auto;padding:28px 20px 48px}}.card{{background:#f
                     result = reveal_live_photo_batch(str(payload.get("batch_id", "")))
                 elif path == "/api/live-photo/batch-airdrop":
                     result = airdrop_live_photo_batch(str(payload.get("batch_id", "")))
+                elif path == "/api/drafts/save":
+                    status, result = save_project_draft(payload)
+                    if status != 200:
+                        self.send_json(status, result)
+                        return
                 else:
                     result = sync_wechat_draft(payload)
         except subprocess.TimeoutExpired:

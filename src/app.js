@@ -176,6 +176,7 @@ const els = {
   historySidebar: $("#historySidebar"),
   historyToggle: $("#historyToggleBtn"),
   historyClose: $("#historyCloseBtn"),
+  syncFolderDrafts: $("#syncFolderDraftsBtn"),
   newProject: $("#newProjectBtn"),
   portableImportOpen: $("#portableImportOpenBtn"),
   projectHistory: $("#projectHistory"),
@@ -197,6 +198,7 @@ const els = {
   accountMenuSignOut: $("#accountMenuSignOutBtn"),
   accountMenuWhatsNew: $("#accountMenuWhatsNewBtn"),
   portableExport: $("#portableExportBtn"),
+  saveToProject: $("#saveToProjectBtn"),
   portableImportModal: $("#portableImportModal"),
   portableImportClose: $("#portableImportCloseBtn"),
   portableImportDropzone: $("#portableImportDropzone"),
@@ -373,6 +375,9 @@ const els = {
   zhFont: $("#zhFontInput"),
   enFont: $("#enFontInput"),
   imageHeight: $("#imageHeightInput"),
+  bgPattern: $("#bgPatternInput"),
+  bgThemeMenu: $("#bgThemeMenu"),
+  bgThemeGrid: $("#bgThemeGrid"),
   pairModal: $("#pairModal"),
   pairClose: $("#pairCloseBtn"),
   pairCanvasLeft: $("#pairCanvasLeft"),
@@ -549,6 +554,20 @@ const CARD_THEME_COLORS = {
   },
 };
 
+const CARD_BG_PATTERNS = ["none", "grid", "lines", "dots", "gradient"];
+
+// 背景主题只是一组初始值：选中后写回设计设置里的各个输入框，用户仍可逐项微调。
+const CARD_BG_THEMES = [
+  { id: "plain", label: "纯白", bgColor: "#ffffff", textColor: "#202938", accentColor: "#17202f", bgPattern: "none" },
+  { id: "paper", label: "米黄纸", bgColor: "#f6efe0", textColor: "#3b3126", accentColor: "#9a5b24", bgPattern: "none" },
+  { id: "grid", label: "网格纸", bgColor: "#fbfcfe", textColor: "#1f2937", accentColor: "#2563eb", bgPattern: "grid" },
+  { id: "lines", label: "横线本", bgColor: "#fffdf7", textColor: "#2b2b2b", accentColor: "#c2410c", bgPattern: "lines" },
+  { id: "dots", label: "点阵", bgColor: "#ffffff", textColor: "#1e293b", accentColor: "#0f766e", bgPattern: "dots" },
+  { id: "mint", label: "薄荷", bgColor: "#ecf8f1", textColor: "#123c2d", accentColor: "#0f7a55", bgPattern: "none" },
+  { id: "gradient", label: "柔和渐变", bgColor: "#fdf2f8", textColor: "#3b2a4a", accentColor: "#be185d", bgPattern: "gradient" },
+  { id: "dark", label: "深夜", bgColor: "#050505", textColor: "#ffffff", accentColor: "#ffffff", bgPattern: "none" },
+];
+
 const defaultText = `[[image:sample]]
 
 她说，如果你无聊的时候，不想只是刷手机，可以让 AI 做一件事：
@@ -709,6 +728,7 @@ function defaultFormState() {
     textColor: "#202938",
     accentColor: "#2563eb",
     bgColor: "#ffffff",
+    bgPattern: "none",
     fontSize: String(DEFAULT_CARD_FONT_SIZE),
     lineHeight: String(DEFAULT_CARD_LINE_HEIGHT),
     zhFont: "zh-system",
@@ -980,6 +1000,7 @@ function readForm() {
     textColor: els.textColor.value,
     accentColor: els.accentColor.value,
     bgColor: els.bgColor.value,
+    bgPattern: normalizeBgPattern(els.bgPattern.value),
     fontSize: clamp(Number(els.fontSize.value) || DEFAULT_CARD_FONT_SIZE, 24, 40),
     lineHeight: clamp(Number(els.lineHeight.value) || DEFAULT_CARD_LINE_HEIGHT, 1, 2.4),
     zhFont: FONT_STACKS[els.zhFont.value] ? els.zhFont.value : "zh-system",
@@ -1059,6 +1080,7 @@ function applyForm(data) {
   els.textColor.value = data.textColor ?? "#202938";
   els.accentColor.value = data.accentColor ?? "#2563eb";
   els.bgColor.value = data.bgColor ?? "#ffffff";
+  els.bgPattern.value = normalizeBgPattern(data.bgPattern);
   els.fontSize.value = data.fontSize ?? String(DEFAULT_CARD_FONT_SIZE);
   els.lineHeight.value = data.lineHeight ?? String(DEFAULT_CARD_LINE_HEIGHT);
   els.zhFont.value = FONT_STACKS[data.zhFont] ? data.zhFont : "zh-system";
@@ -1101,6 +1123,60 @@ function setUiTheme(theme, announce = false, syncCard = false) {
   if (announce) {
     els.status.textContent = `已切换为${UI_THEME_LABELS[nextTheme]}主题`;
   }
+}
+
+function currentBgThemeId() {
+  const current = {
+    bgColor: els.bgColor.value.toLowerCase(),
+    textColor: els.textColor.value.toLowerCase(),
+    accentColor: els.accentColor.value.toLowerCase(),
+    bgPattern: normalizeBgPattern(els.bgPattern.value),
+  };
+  return CARD_BG_THEMES.find((theme) => (
+    theme.bgColor === current.bgColor
+    && theme.textColor === current.textColor
+    && theme.accentColor === current.accentColor
+    && theme.bgPattern === current.bgPattern
+  ))?.id || "";
+}
+
+function buildBgThemeGrid() {
+  if (!els.bgThemeGrid) return;
+  const activeId = currentBgThemeId();
+  els.bgThemeGrid.replaceChildren(...CARD_BG_THEMES.map((theme) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "bg-theme-option";
+    button.dataset.bgTheme = theme.id;
+    button.setAttribute("aria-pressed", theme.id === activeId ? "true" : "false");
+    const swatch = document.createElement("span");
+    swatch.className = `bg-theme-swatch is-${theme.bgPattern}`;
+    swatch.style.setProperty("--swatch-bg", theme.bgColor);
+    swatch.style.setProperty("--swatch-bg-2", gradientPartnerColor(theme.bgColor));
+    swatch.style.setProperty("--swatch-ink", rgbaFromHex(theme.textColor, 0.18));
+    swatch.style.color = theme.textColor;
+    swatch.textContent = "Aa";
+    const accent = document.createElement("i");
+    accent.style.background = theme.accentColor;
+    swatch.append(accent);
+    const label = document.createElement("span");
+    label.className = "bg-theme-label";
+    label.textContent = theme.label;
+    button.append(swatch, label);
+    return button;
+  }));
+}
+
+function applyBgTheme(themeId) {
+  const theme = CARD_BG_THEMES.find((item) => item.id === themeId);
+  if (!theme || isBuiltInProjectId(state.currentProjectId)) return;
+  els.bgColor.value = theme.bgColor;
+  els.textColor.value = theme.textColor;
+  els.accentColor.value = theme.accentColor;
+  els.bgPattern.value = theme.bgPattern;
+  buildBgThemeGrid();
+  requestRender();
+  els.status.textContent = `已切换背景主题：${theme.label}`;
 }
 
 function syncCardColorsToTheme(theme) {
@@ -1323,6 +1399,7 @@ function saveState() {
     );
     saveProjectStore();
     updateProjectHistory();
+    scheduleFolderDraftWriteBack(current.id);
   } catch {
     els.status.textContent = "本次内容较大，浏览器未写入本地缓存";
   }
@@ -2792,6 +2869,7 @@ function hydrateCloudProjectOnce(project) {
 
 async function activateWorkspaceScope(scope, projects = null, profile = null) {
   cloudState.loadingWorkspace = true;
+  folderDraftSync.generation += 1;
   activeStorageScope = scope;
   if (scope === "guest") migrateGuestSessionStore();
   buildSelectionSwatches("color");
@@ -2831,6 +2909,7 @@ async function activateWorkspaceScope(scope, projects = null, profile = null) {
   } finally {
     cloudState.loadingWorkspace = false;
   }
+  void syncFolderDrafts();
 }
 
 async function loadCloudWorkspace(session) {
@@ -3527,6 +3606,10 @@ function updateProjectHistory() {
     return projectType(project) === state.historyFilter;
   });
 
+  const folderDraftFiles = new Map(
+    Object.entries(loadFolderDraftRecords()).map(([file, record]) => [record?.projectId, file]),
+  );
+
   if (!visibleProjects.length) {
     const empty = document.createElement("div");
     empty.className = "history-empty";
@@ -3544,10 +3627,11 @@ function updateProjectHistory() {
     item.classList.toggle("active", project.id === state.currentProjectId);
     item.dataset.projectType = type;
     item.dataset.projectId = project.id;
+    const folderFile = folderDraftFiles.get(project.id);
     item.innerHTML = `
-      <button type="button" class="history-open">
+      <button type="button" class="history-open"${folderFile ? ` title="载入自 drafts/${escapeHtml(folderFile)}"` : ""}>
         <span>${escapeHtml(project.title || "未命名图文")}</span>
-        <small><b>${builtIn ? "说明" : projectTypeLabel(type)}</b>${builtIn ? projectTypeLabel(type) : formatProjectTime(project.updatedAt)}</small>
+        <small><b>${builtIn ? "说明" : projectTypeLabel(type)}</b>${folderFile ? "<em>drafts</em>" : ""}${builtIn ? projectTypeLabel(type) : formatProjectTime(project.updatedAt)}</small>
       </button>
       ${
         builtIn
@@ -3667,6 +3751,582 @@ async function createNewProject() {
   updateProjectHistory();
   await render();
   els.status.textContent = "已新建图文，上一篇可在左侧原稿列表切换";
+}
+
+// 本机 server.py 会列出仓库 drafts/ 里的 Markdown；线上静态站没有这个接口，直接跳过。
+// 网页里改动副本后会自动写回原文件；两边都改过时先问用户保留哪一边。
+const FOLDER_DRAFTS_STORAGE_KEY = "writeThenPublishFolderDrafts.v1";
+const FOLDER_DRAFT_WRITE_DELAY = 1200;
+const folderDraftSync = { running: null, again: false, generation: 0 };
+const folderDraftWrites = { timers: new Map(), running: new Map(), notes: new Map() };
+
+function folderDraftsSupported() {
+  return window.location.protocol.startsWith("http")
+    && ["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname);
+}
+
+/** 记录每个文件载入时的 mtime、副本 id 和指纹：{ [file]: { mtime, projectId, fingerprint } } */
+function loadFolderDraftRecords() {
+  try {
+    const parsed = JSON.parse(storageForScope().getItem(scopedStorageKey(FOLDER_DRAFTS_STORAGE_KEY)) || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveFolderDraftRecords(records) {
+  storageForScope().setItem(scopedStorageKey(FOLDER_DRAFTS_STORAGE_KEY), JSON.stringify(records));
+}
+
+function folderDraftFingerprint(title, content) {
+  const text = `${String(title || "").trim()}\n${String(content || "")}`;
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `${text.length}:${(hash >>> 0).toString(36)}`;
+}
+
+/** 副本自载入后没被改过（标题和正文都没动）才允许用新文件覆盖。 */
+function folderDraftUntouched(project, record) {
+  const current = project.id === state.currentProjectId
+    ? { title: els.draftTitle.value, content: els.content.value }
+    : project.data;
+  return folderDraftFingerprint(current.title, current.content) === record.fingerprint;
+}
+
+function folderDraftAssetPaths(reference) {
+  let path = String(reference || "").trim().replace(/^<|>$/g, "");
+  if (/^[a-z][a-z0-9+.-]*:/i.test(path) || path.startsWith("/")) return [];
+  try {
+    path = decodeURIComponent(path);
+  } catch {
+    // Keep the original text when the reference contains an incomplete escape sequence.
+  }
+  const parts = path.replace(/\\/g, "/").replace(/[?#].*$/, "").split("/").filter((part) => part && part !== ".");
+  if (!parts.length || parts.includes("..")) return [];
+  const relative = parts.join("/");
+  // Obsidian 的 ![[x.png]] 只写文件名，再到 assets/ 里找一次。
+  return parts.length === 1 ? [relative, `assets/${relative}`] : [relative];
+}
+
+/** 草稿文件是 "文件夹/草稿.md"；正文里的图片路径相对这个文件夹。 */
+function folderDraftUrl(file, relative) {
+  const folder = String(file || "").split("/").slice(0, -1);
+  return `drafts/${[...folder, ...relative.split("/")].map(encodeURIComponent).join("/")}`;
+}
+
+/** 每个图片引用在原文里第一次出现的写法，写回时原样还原。 */
+function folderDraftEmbeds(markdown) {
+  const embeds = new Map();
+  const text = String(markdown || "");
+  for (const match of text.matchAll(/!\[\[([^\]\n]+)\]\]/g)) {
+    const reference = match[1].split("|")[0].trim();
+    if (!embeds.has(reference)) embeds.set(reference, match[0]);
+  }
+  for (const match of text.matchAll(/!\[[^\]\n]*\]\((?:<([^>]+)>|([^\s)]+))(?:\s+[^)]*)?\)/g)) {
+    const reference = (match[1] || match[2] || "").trim();
+    if (!embeds.has(reference)) embeds.set(reference, match[0]);
+  }
+  return embeds;
+}
+
+/** 图片引用里的文件路径；实况图写成 ![名](assets/x.jpg "live:assets/x.mov")，标题里是视频。 */
+function folderDraftEmbedParts(embed) {
+  const text = String(embed || "");
+  const wiki = /^!\[\[([^\]\n]+)\]\]$/.exec(text);
+  if (wiki) return { reference: wiki[1].split("|")[0].trim(), video: "" };
+  const match = /^!\[[^\]\n]*\]\((?:<([^>]+)>|([^\s)]+))(?:\s+"live:([^"\n]+)")?[^)]*\)$/.exec(text);
+  return match ? { reference: (match[1] || match[2] || "").trim(), video: (match[3] || "").trim() } : { reference: "", video: "" };
+}
+
+async function fetchFolderDraftAsset(file, reference, pattern, kind) {
+  for (const relative of folderDraftAssetPaths(reference)) {
+    try {
+      const response = await fetch(folderDraftUrl(file, relative), { cache: "no-store" });
+      if (!response.ok) continue;
+      const blob = await response.blob();
+      if (blob.type.startsWith(`${kind}/`)) return { blob, relative };
+      // 本机服务认不出的格式（比如 HEIC）按扩展名收下。
+      if (pattern.test(relative)) {
+        const extension = relative.split(".").pop().toLowerCase();
+        const type = kind === "video" ? { mp4: "video/mp4", m4v: "video/mp4", webm: "video/webm" }[extension] || "video/quicktime" : "";
+        return { blob: new Blob([blob], { type }), relative };
+      }
+    } catch {
+      // 读不到就试下一个候选路径。
+    }
+  }
+  return null;
+}
+
+async function loadFolderDraftImages(markdown, file, previous = {}) {
+  const images = {};
+  const embeds = folderDraftEmbeds(markdown);
+  for (const [index, reference] of extractMarkdownImageReferences(markdown).entries()) {
+    // 单张图读不到时保留原 Markdown 引用，不影响其余内容。
+    const cover = await fetchFolderDraftAsset(file, reference, /\.(avif|bmp|gif|heic|heif|jpe?g|png|svg|webp)$/i, "image");
+    if (!cover) continue;
+    const sourcePath = folderDraftAssetPaths(reference)[0];
+    const draftEmbed = embeds.get(reference) || `![](${cover.relative})`;
+    const id = createImportedImageId(index);
+    images[id] = {
+      src: await readFileAsDataURL(cover.blob),
+      name: sourcePath.split("/").pop(),
+      sourcePath,
+      vaultPath: null,
+      crop: null,
+      layout: defaultNewImageLayout(),
+      draftEmbed,
+    };
+    const { video: videoReference } = folderDraftEmbedParts(draftEmbed);
+    const video = videoReference ? await fetchFolderDraftAsset(file, videoReference, /\.(mov|mp4|m4v|webm)$/i, "video") : null;
+    if (!video) continue;
+    // 文件刷新后沿用上一版的视频存储位置和实况参数（时长、速度、裁剪等 Markdown 里没写）。
+    const [priorId, prior] = Object.entries(previous).find(([, image]) => image?.kind === "live" && image.draftEmbed === draftEmbed) || [];
+    const videoKey = String(prior?.videoKey || priorId || id);
+    const videoName = video.relative.split("/").pop();
+    try {
+      await writeLiveMediaBlob(videoKey, video.blob);
+    } catch {
+      continue;
+    }
+    replaceLiveMediaCache(videoKey, video.blob, videoName);
+    Object.assign(images[id], {
+      kind: "live",
+      videoKey,
+      videoName,
+      videoType: video.blob.type || "video/quicktime",
+      videoDuration: Number(prior?.videoDuration) || 0,
+      videoWidth: Number(prior?.videoWidth) || 0,
+      videoHeight: Number(prior?.videoHeight) || 0,
+      liveSettings: normalizeLiveMediaSettings(prior?.liveSettings || {}),
+    });
+  }
+  return images;
+}
+
+async function syncFolderDrafts({ announce = false } = {}) {
+  if (!folderDraftsSupported()) return;
+  if (folderDraftSync.running) {
+    folderDraftSync.again = true;
+    return folderDraftSync.running;
+  }
+  folderDraftSync.running = runFolderDraftSync(announce).finally(() => {
+    folderDraftSync.running = null;
+    if (folderDraftSync.again) {
+      folderDraftSync.again = false;
+      void syncFolderDrafts({ announce });
+    }
+  });
+  return folderDraftSync.running;
+}
+
+async function runFolderDraftSync(announce) {
+  let payload;
+  try {
+    const response = await fetch("api/drafts", { cache: "no-store" });
+    if (!response.ok) return;
+    payload = await response.json();
+  } catch {
+    return;
+  }
+  if (els.syncFolderDrafts) els.syncFolderDrafts.hidden = false;
+  // 能读到 drafts/ 说明是本机 server.py，才显示“保存到项目”。
+  if (els.saveToProject) els.saveToProject.hidden = false;
+  const generation = folderDraftSync.generation;
+  const stale = () => generation !== folderDraftSync.generation || cloudState.loadingWorkspace;
+  // 工作区正在切换时不动它；activateWorkspaceScope 结束后会再同步一次。
+  if (stale()) return;
+
+  const drafts = Array.isArray(payload?.drafts) ? payload.drafts : [];
+  const records = loadFolderDraftRecords();
+  let added = 0;
+  let refreshed = 0;
+  let full = 0;
+  let refreshedCurrent = false;
+  let movedRecords = false;
+  for (const draft of drafts) {
+    const file = String(draft?.file || "");
+    const mtime = Number(draft?.mtime) || 0;
+    // 草稿从 drafts/x.md 挪进 drafts/x/x.md 后，沿用原来的副本，不重复载入。
+    const legacyKey = [file.split("/").pop(), `${file.split("/")[0]}.md`].find((key) => key !== file && records[key]);
+    if (!records[file] && legacyKey) {
+      records[file] = records[legacyKey];
+      delete records[legacyKey];
+      movedRecords = true;
+    }
+    const record = records[file];
+    if (!file || (record && mtime <= record.mtime)) continue;
+    const existing = record ? state.projects.find((project) => project.id === record.projectId) : null;
+    if (existing && !folderDraftUntouched(existing, record)) continue;
+    if (!existing && state.projects.length >= MAX_PROJECTS) {
+      full += 1;
+      continue;
+    }
+
+    // textarea 会把 CRLF 读成 LF，先统一，否则指纹永远对不上。
+    const markdown = String(draft.content || "").replace(/\r\n?/g, "\n");
+    const images = await loadFolderDraftImages(markdown, file, existing?.data?.images);
+    if (stale()) return;
+    const title = String(draft.title || "").trim().slice(0, 200);
+    const content = convertObsidianImageReferences(markdown, images).content;
+    // 图片读取期间用户可能已经开始改这份副本，落盘前再确认一次。
+    const project = existing && state.projects.includes(existing) && folderDraftUntouched(existing, record) ? existing : null;
+    if (existing && !project) continue;
+    if (project) {
+      const keptVideos = new Set(Object.values(images).map((image) => image.videoKey).filter(Boolean));
+      for (const [id, image] of Object.entries(project.data.images || {})) {
+        if (image?.kind === "live" && !keptVideos.has(String(image.videoKey || id))) void cleanUpDeletedImageAsset(id, image);
+      }
+      project.data = { ...project.data, title, content, images };
+      project.title = projectTitleFromData(project.data);
+      project.updatedAt = Date.now();
+      refreshed += 1;
+      // 正在打开的这篇立刻换进编辑器，免得后面读图期间的自动保存把旧内容写回去。
+      if (project.id === state.currentProjectId) {
+        applyForm(project.data);
+        resetTextHistory();
+        refreshedCurrent = true;
+      }
+    } else {
+      const created = createProject({ ...blankFormState(), title, content, images });
+      state.projects = [created, ...state.projects];
+      records[file] = { projectId: created.id };
+      added += 1;
+    }
+    records[file] = { ...records[file], mtime, fingerprint: folderDraftFingerprint(title, content) };
+  }
+
+  if (movedRecords && !added && !refreshed) saveFolderDraftRecords(records);
+  if (added || refreshed) {
+    saveProjectStore();
+    saveFolderDraftRecords(records);
+    updateProjectHistory();
+    if (refreshedCurrent) await render();
+  }
+  const parts = [];
+  if (added) parts.push(`新载入 ${added} 篇`);
+  if (refreshed) parts.push(`更新 ${refreshed} 篇`);
+  if (full) parts.push(`${full} 篇因原稿已满 ${MAX_PROJECTS} 篇未载入`);
+  if (parts.length) els.status.textContent = `项目 drafts/ 文件夹：${parts.join("，")}`;
+  else if (announce) els.status.textContent = "项目 drafts/ 文件夹没有新的或更新过的草稿";
+}
+
+function folderDraftFileForProject(projectId, records = loadFolderDraftRecords()) {
+  return Object.keys(records).find((file) => records[file]?.projectId === projectId) || null;
+}
+
+function scheduleFolderDraftWriteBack(projectId) {
+  if (!folderDraftsSupported() || cloudState.loadingWorkspace) return;
+  if (!folderDraftFileForProject(projectId)) return;
+  window.clearTimeout(folderDraftWrites.timers.get(projectId));
+  folderDraftWrites.timers.set(projectId, window.setTimeout(() => {
+    folderDraftWrites.timers.delete(projectId);
+    void writeBackFolderDraft(projectId);
+  }, FOLDER_DRAFT_WRITE_DELAY));
+}
+
+async function folderDraftImageDataURL(image) {
+  let src = image?.src || "";
+  if (!src && image?.srcKey) src = (await readImageSource(image.srcKey).catch(() => null)) || "";
+  if (!src) return "";
+  if (src.startsWith("data:")) return src;
+  const response = await fetch(src);
+  if (!response.ok) return "";
+  return readFileAsDataURL(await response.blob());
+}
+
+/** 早先载入的副本没记 draftEmbed：sourcePath 能在 drafts/ 里找到同一文件时直接引用它，不再重复存图。 */
+async function existingFolderDraftEmbed(image, file) {
+  if (!file || !image?.sourcePath || image.vaultPath || image.kind === "live") return "";
+  // 同名但内容不同的图（比如粘贴的 image.png）不能误引用，用字节数再核对一次。
+  const src = await folderDraftImageDataURL(image).catch(() => "");
+  const base64 = src.split(",")[1] || "";
+  const bytes = Math.floor((base64.length * 3) / 4) - (base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0);
+  if (!bytes) return "";
+  for (const relative of folderDraftAssetPaths(image.sourcePath)) {
+    try {
+      const response = await fetch(folderDraftUrl(file, relative), { method: "HEAD", cache: "no-store" });
+      if (response.ok && Number(response.headers.get("Content-Length")) === bytes) {
+        image.draftEmbed = `![](${relative})`;
+        return image.draftEmbed;
+      }
+    } catch {
+      // 查不到就按新图处理。
+    }
+  }
+  return "";
+}
+
+/** 引用到的图片（和实况视频）是否都还在草稿文件夹里。 */
+async function folderDraftEmbedFilesExist(embed, file) {
+  const { reference, video } = folderDraftEmbedParts(embed);
+  if (!reference) return false;
+  for (const target of [reference, video].filter(Boolean)) {
+    let found = false;
+    for (const relative of folderDraftAssetPaths(target)) {
+      try {
+        found = (await fetch(folderDraftUrl(file, relative), { method: "HEAD", cache: "no-store" })).ok;
+      } catch {
+        found = false;
+      }
+      if (found) break;
+    }
+    if (!found) return false;
+  }
+  return true;
+}
+
+/** 一张图要写进 assets/ 的文件：原图或 GIF 原样保存；实况图再加一份原视频。 */
+async function folderDraftUpload(id, image) {
+  const cover = await portableCoverBlob(image);
+  const base = safeObsidianFileName(String(image.name || "图片").replace(/\.[^.]+$/, ""), "图片")
+    .replace(/[\s()[\]<>]+/g, "-")
+    .replace(/^\.+/, "") || "图片";
+  const stem = `assets/${base}-${id.replace(/[^a-z0-9_-]/gi, "").slice(-8) || "image"}`;
+  const coverExtension = portableMediaExtension(cover, image.name);
+  const path = `${stem}${coverExtension === "bin" ? imageExtensionFromSource(image, cover) : `.${coverExtension}`}`;
+  const files = [{ path, blob: cover }];
+  if (image.kind !== "live") return { id, path, embed: `![${base}](${path})`, files };
+  const video = await portableVideoBlob(image, id);
+  const videoExtension = portableMediaExtension(video, image.videoName, true);
+  const videoPath = `${stem}.${videoExtension === "bin" ? "mov" : videoExtension}`;
+  files.push({ path: videoPath, blob: video });
+  return { id, path, embed: `![${base}](${path} "live:${videoPath}")`, files };
+}
+
+/** 素材逐个原样写进 drafts/<文件夹>/assets/；视频可能很大，不放进 JSON。 */
+async function uploadFolderDraftFiles(file, uploads) {
+  const done = [];
+  const failed = [];
+  for (const upload of uploads) {
+    let ok = true;
+    for (const { path, blob } of upload.files) {
+      try {
+        const response = await fetch(`api/drafts/asset?${new URLSearchParams({ file, path })}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/octet-stream" },
+          body: blob,
+        });
+        const result = await response.json().catch(() => ({}));
+        if (response.status === 404 && result.missing) return { missing: true, done, failed };
+        if (!response.ok || !result.ok) throw new Error(result.error || `HTTP ${response.status}`);
+      } catch (error) {
+        ok = false;
+        failed.push(`${path}（${error?.message || "写入失败"}）`);
+        break;
+      }
+    }
+    if (ok) done.push(upload);
+  }
+  return { missing: false, done, failed };
+}
+
+/**
+ * 把编辑器里的 [[image:id]] 换回 Markdown 图片；网页里新加的图片、GIF、实况视频列进 uploads，
+ * 由调用方写进 drafts/<文件夹>/assets/。
+ * fresh：新建的草稿文件夹是空的，全部重新存；verify：已引用的文件被删掉时重新存。
+ */
+async function buildFolderDraftMarkdown(data, file = null, { fresh = false, verify = false } = {}) {
+  const images = data.images || {};
+  const uploads = [];
+  const missing = [];
+  const embeds = new Map();
+  const embedFor = async (id) => {
+    if (embeds.has(id)) return;
+    const image = images[id];
+    let embed = fresh ? "" : image?.draftEmbed || (await existingFolderDraftEmbed(image, file));
+    if (embed && verify && file && !(await folderDraftEmbedFilesExist(embed, file))) embed = "";
+    if (image && !embed) {
+      try {
+        const upload = await folderDraftUpload(id, image);
+        uploads.push(upload);
+        embed = upload.embed;
+      } catch {
+        missing.push(image.name || id);
+      }
+    }
+    embeds.set(id, embed || `<!-- 缺失图片：${id} -->`);
+  };
+  const content = String(data.content || "");
+  const markers = Array.from(content.matchAll(/\[\[image:([^\]\n]+)\]\]/g));
+  for (const match of markers) {
+    // 双图并排在 Markdown 里没有对应写法，写回成上下两张。
+    for (const id of match[1].split("|").filter((part) => images[part])) await embedFor(id);
+  }
+  const markdown = content.replace(/\[\[image:([^\]\n]+)\]\]/g, (whole, inner) => {
+    const ids = inner.split("|").filter((part) => images[part]);
+    return ids.length ? ids.map((id) => embeds.get(id)).join("\n\n") : embeds.get(inner) || whole;
+  });
+  return { markdown, uploads, missing };
+}
+
+function folderDraftIssues(missing, failed) {
+  const issues = [];
+  if (missing.length) issues.push(`原件缺失：${missing.join("、")}`);
+  if (failed.length) issues.push(`素材未写入：${failed.join("、")}`);
+  return issues.join("；");
+}
+
+/** 结果："written" | "unchanged" | "missing" | "conflict" | "error" */
+async function writeBackFolderDraft(projectId, { force = false, always = false } = {}) {
+  if (folderDraftWrites.running.has(projectId)) {
+    await folderDraftWrites.running.get(projectId);
+  }
+  const task = runFolderDraftWriteBack(projectId, force, always).finally(() => folderDraftWrites.running.delete(projectId));
+  folderDraftWrites.running.set(projectId, task);
+  return task;
+}
+
+async function runFolderDraftWriteBack(projectId, force, always = false) {
+  if (folderDraftSync.running) await folderDraftSync.running;
+  const records = loadFolderDraftRecords();
+  const file = folderDraftFileForProject(projectId, records);
+  const project = state.projects.find((item) => item.id === projectId);
+  if (!file || !project) return "error";
+  const record = records[file];
+  const fingerprint = folderDraftFingerprint(project.data.title, project.data.content);
+  // 正文没变但有图还没存进 assets/（比如刚改过的实况图）时也要写一次。
+  const pendingMedia = Array.from(String(project.data.content || "").matchAll(/\[\[image:([^\]\n]+)\]\]/g))
+    .flatMap((match) => match[1].split("|"))
+    .some((id) => project.data.images?.[id] && !project.data.images[id].draftEmbed);
+  if (!force && !always && !pendingMedia && fingerprint === record.fingerprint) return "unchanged";
+
+  let response;
+  let result;
+  folderDraftWrites.notes.delete(projectId);
+  // 先存素材再写 .md，正文里不会出现还没写进去的文件。
+  const { markdown, uploads, missing } = await buildFolderDraftMarkdown(project.data, file, { verify: always });
+  const stored = await uploadFolderDraftFiles(file, uploads);
+  applyFolderDraftUploads(project, stored.done);
+  if (stored.missing) {
+    els.status.textContent = `drafts/${file} 已不存在，未写回`;
+    return "missing";
+  }
+  if (stored.failed.length) {
+    const note = folderDraftIssues([], stored.failed);
+    folderDraftWrites.notes.set(projectId, note);
+    els.status.textContent = `drafts/${file} 未写回：${note}`;
+    return "error";
+  }
+  try {
+    response = await fetch("api/drafts/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        file,
+        title: project.data.title || "",
+        content: markdown,
+        baseMtime: record.mtime,
+        force,
+      }),
+    });
+    result = await response.json().catch(() => ({}));
+  } catch {
+    els.status.textContent = `没连上本机服务，drafts/${file} 未写回`;
+    return "error";
+  }
+
+  if (response.status === 409 && result.conflict) {
+    const overwrite = window.confirm(
+      `drafts/${file} 在网页载入后也被修改过。\n\n确定：用网页里的内容覆盖文件。\n取消：保留文件，网页副本改为文件里的内容。`,
+    );
+    if (overwrite) {
+      return runFolderDraftWriteBack(projectId, true, always);
+    } else {
+      // 把副本当成“未改动”，再同步一次就会换成文件里的新内容。
+      const latest = loadFolderDraftRecords();
+      latest[file] = { ...latest[file], fingerprint: folderDraftFingerprint(project.data.title, project.data.content) };
+      saveFolderDraftRecords(latest);
+      await syncFolderDrafts();
+    }
+    return "conflict";
+  }
+  if (response.status === 404 && result.missing) {
+    els.status.textContent = `drafts/${file} 已不存在，未写回`;
+    return "missing";
+  }
+  if (!response.ok || !result.ok) {
+    els.status.textContent = `drafts/${file} 未写回：${result.error || `HTTP ${response.status}`}`;
+    return "error";
+  }
+
+  const latest = loadFolderDraftRecords();
+  latest[file] = { ...latest[file], projectId, mtime: Number(result.mtime) || record.mtime, fingerprint };
+  saveFolderDraftRecords(latest);
+  const note = folderDraftIssues(missing, []);
+  if (note) folderDraftWrites.notes.set(projectId, note);
+  els.status.textContent = `已写回 drafts/${file}${note ? `；${note}` : ""}`;
+  return "written";
+}
+
+// 新写出的图片记下路径，下次写回直接引用，不再重复上传。
+function applyFolderDraftUploads(project, uploads) {
+  for (const { id, path, embed } of uploads) {
+    const written = { sourcePath: path, draftEmbed: embed };
+    if (project.data.images?.[id]) Object.assign(project.data.images[id], written);
+    if (project.id === state.currentProjectId && state.images[id]) Object.assign(state.images[id], written);
+  }
+  if (uploads.length) saveProjectStore();
+}
+
+/**
+ * 保存到项目：确认 drafts/ 里有这一篇。已关联的立即写回一次，
+ * 没关联或文件已被删掉的新建一个 .md 并关联上。线上或本机服务不在时返回 null。
+ */
+async function ensureFolderDraftForProject(project) {
+  if (!folderDraftsSupported() || !project || isBuiltInProject(project)) return null;
+  window.clearTimeout(folderDraftWrites.timers.get(project.id));
+  folderDraftWrites.timers.delete(project.id);
+  const linked = folderDraftFileForProject(project.id);
+  if (linked) {
+    const outcome = await writeBackFolderDraft(project.id, { always: true });
+    const note = folderDraftWrites.notes.get(project.id) || "";
+    if (outcome === "written" || outcome === "conflict") return { file: linked, created: false, note };
+    if (outcome !== "missing") return { error: note || "本机服务没有确认写入" };
+    const records = loadFolderDraftRecords();
+    delete records[linked];
+    saveFolderDraftRecords(records);
+  }
+
+  const { markdown, uploads, missing } = await buildFolderDraftMarkdown(project.data, null, { fresh: true });
+  let response;
+  let result;
+  try {
+    response = await fetch("api/drafts/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        create: true,
+        title: project.data.title || "",
+        fallbackName: project.title || "",
+        content: markdown,
+      }),
+    });
+    result = await response.json().catch(() => ({}));
+  } catch {
+    return null;
+  }
+  // 不是本项目的 server.py（比如别的静态服务）时没有这个接口，安静跳过。
+  if (response.status === 404 && !result.missing) return null;
+  if (!response.ok || !result.ok || !result.file) return { error: result.error || `HTTP ${response.status}` };
+
+  // 文件夹建好后再把图片、GIF、实况视频写进它的 assets/。
+  const stored = await uploadFolderDraftFiles(result.file, uploads);
+  applyFolderDraftUploads(project, stored.done);
+  const records = loadFolderDraftRecords();
+  records[result.file] = {
+    projectId: project.id,
+    mtime: Number(result.mtime) || Date.now(),
+    fingerprint: folderDraftFingerprint(project.data.title, project.data.content),
+  };
+  saveFolderDraftRecords(records);
+  if (els.syncFolderDrafts) els.syncFolderDrafts.hidden = false;
+  updateProjectHistory();
+  return { file: result.file, created: true, note: folderDraftIssues(missing, stored.failed) };
 }
 
 const FIRST_RUN_ONBOARDING_STEPS = [
@@ -5573,6 +6233,22 @@ async function exportPortableProject(selectedProject = null) {
   const blob = await zip.generateAsync({ type: "blob", compression: "STORE", streamFiles: true });
   await saveBlob(blob, `${folderName}.zip`);
   els.status.textContent = `已交给浏览器下载 ${folderName}.zip；请检查下载目录并保留原稿。`;
+}
+
+/** 把当前稿件连同图片、GIF、实况视频存进项目的 drafts/<标题>/；只在本机 server.py 下可用。 */
+async function saveProjectToFolderDrafts() {
+  closeAccountMenu();
+  if (els.downloadMenu) els.downloadMenu.open = false;
+  if (!folderDraftsSupported()) throw new Error("保存到项目需要在本机运行 python3 server.py 后打开页面。");
+  saveState();
+  const project = state.projects.find((item) => item.id === state.currentProjectId);
+  if (!project || isBuiltInProject(project)) throw new Error("请先新建并编辑自己的稿件，再保存到项目。");
+  els.status.textContent = "正在保存到项目 drafts/…";
+  const result = await ensureFolderDraftForProject(project);
+  if (!result) throw new Error("没连上本机 server.py，未保存到项目。");
+  if (result.error) throw new Error(`未能保存到项目：${result.error}`);
+  const note = result.note ? `（${result.note}）` : "";
+  els.status.textContent = `${result.created ? "已保存到项目" : "已同步到项目"} drafts/${result.file}${note}`;
 }
 
 async function inspectPortableProject(read, paths) {
@@ -8610,9 +9286,89 @@ function collectImageDropTargets(page) {
     .filter((target) => target.height > 0);
 }
 
+function normalizeBgPattern(value) {
+  return CARD_BG_PATTERNS.includes(value) ? value : "none";
+}
+
+function hexToRgb(hex) {
+  const match = String(hex || "").match(/^#?([0-9a-fA-F]{6})$/);
+  if (!match) return null;
+  const value = Number.parseInt(match[1], 16);
+  return { r: (value >> 16) & 255, g: (value >> 8) & 255, b: value & 255 };
+}
+
+function rgbaFromHex(hex, alpha) {
+  const rgb = hexToRgb(hex) || { r: 32, g: 41, b: 56 };
+  return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
+}
+
+// 渐变的另一端由背景色转动色相得到，这样用户改了背景色，渐变也跟着变。
+function gradientPartnerColor(hex) {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return hex;
+  const r = rgb.r / 255;
+  const g = rgb.g / 255;
+  const b = rgb.b / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const lightness = (max + min) / 2;
+  const delta = max - min;
+  if (!delta) return hex;
+  const saturation = delta / (1 - Math.abs(2 * lightness - 1));
+  let hue = max === r ? ((g - b) / delta) % 6 : max === g ? (b - r) / delta + 2 : (r - g) / delta + 4;
+  hue = (hue * 60 + 360 - 60) % 360;
+  return `hsl(${Math.round(hue)}, ${Math.round(saturation * 100)}%, ${Math.round(lightness * 100)}%)`;
+}
+
 function drawBackground(ctx, settings) {
-  ctx.fillStyle = settings.bgColor;
+  const pattern = normalizeBgPattern(settings.bgPattern);
+  if (pattern === "gradient") {
+    const gradient = ctx.createLinearGradient(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    gradient.addColorStop(0, settings.bgColor);
+    gradient.addColorStop(1, gradientPartnerColor(settings.bgColor));
+    ctx.fillStyle = gradient;
+  } else {
+    ctx.fillStyle = settings.bgColor;
+  }
   ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+  ctx.save();
+  if (pattern === "grid") {
+    const cell = 36;
+    ctx.strokeStyle = rgbaFromHex(settings.textColor, 0.07);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let x = cell; x < CANVAS_WIDTH; x += cell) {
+      ctx.moveTo(x + 0.5, 0);
+      ctx.lineTo(x + 0.5, CANVAS_HEIGHT);
+    }
+    for (let y = cell; y < CANVAS_HEIGHT; y += cell) {
+      ctx.moveTo(0, y + 0.5);
+      ctx.lineTo(CANVAS_WIDTH, y + 0.5);
+    }
+    ctx.stroke();
+  } else if (pattern === "lines") {
+    const gap = 48;
+    ctx.strokeStyle = rgbaFromHex(settings.textColor, 0.1);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let y = gap; y < CANVAS_HEIGHT; y += gap) {
+      ctx.moveTo(0, y + 0.5);
+      ctx.lineTo(CANVAS_WIDTH, y + 0.5);
+    }
+    ctx.stroke();
+  } else if (pattern === "dots") {
+    const gap = 28;
+    ctx.fillStyle = rgbaFromHex(settings.textColor, 0.16);
+    for (let y = gap; y < CANVAS_HEIGHT; y += gap) {
+      for (let x = gap; x < CANVAS_WIDTH; x += gap) {
+        ctx.beginPath();
+        ctx.arc(x, y, 1.6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+  ctx.restore();
 }
 
 function drawHeader(ctx, settings, avatar, badge) {
@@ -10387,8 +11143,10 @@ async function applyLivePhotoAsset(event) {
     });
     await writeLiveMediaBlob(videoKey, livePhotoState.file);
     replaceLiveMediaCache(videoKey, livePhotoState.file, livePhotoState.file.name || state.images[id]?.videoName || "video.mov");
+    // 封面或视频变了，drafts/ 里的旧文件不能再直接引用。
+    const { draftEmbed: _previousEmbed, ...previousImage } = state.images[id] || {};
     state.images[id] = {
-      ...(state.images[id] || {}),
+      ...previousImage,
       kind: "live",
       src: cover,
       name: state.images[id]?.name || `${livePhotoState.file.name || "视频"} · 实况`,
@@ -11582,7 +12340,7 @@ function syncExportBusyState() {
   const handoffBusy = exportProgressState.handoff.active;
   const guideLocked = isBuiltInProjectId(state.currentProjectId);
   document.body.classList.toggle("export-busy", mainBusy || handoffBusy);
-  [els.downloadZip, els.downloadArticle, els.portableExport].filter(Boolean).forEach((button) => {
+  [els.downloadZip, els.downloadArticle, els.portableExport, els.saveToProject].filter(Boolean).forEach((button) => {
     button.disabled = mainBusy || guideLocked;
     button.setAttribute("aria-disabled", button.disabled ? "true" : "false");
     button.title = guideLocked ? GUIDE_DOWNLOAD_MESSAGE : "";
@@ -13119,6 +13877,7 @@ function bindEvents() {
     els.textColor,
     els.accentColor,
     els.bgColor,
+    els.bgPattern,
     els.fontSize,
     els.lineHeight,
     els.zhFont,
@@ -13282,6 +14041,13 @@ function bindEvents() {
   });
   buildSelectionSwatches("color");
   buildSelectionSwatches("bg");
+  els.bgThemeMenu?.addEventListener("toggle", () => {
+    if (els.bgThemeMenu.open) buildBgThemeGrid();
+  });
+  els.bgThemeGrid?.addEventListener("click", (event) => {
+    const button = event.target.closest?.("[data-bg-theme]");
+    if (button) applyBgTheme(button.dataset.bgTheme);
+  });
   els.contentImage.addEventListener("change", handleContentImage);
   els.copyPlainText?.addEventListener("click", () => void copyPlainTextToClipboard());
   els.emojiMenu?.addEventListener("toggle", () => {
@@ -13403,6 +14169,7 @@ function bindEvents() {
     startWhatsNewTour();
   });
   els.portableExport?.addEventListener("click", () => void runPortableAction(els.portableExport, exportPortableProject));
+  els.saveToProject?.addEventListener("click", () => void runPortableAction(els.saveToProject, saveProjectToFolderDrafts));
   els.portableImportOpen?.addEventListener("click", openPortableImportModal);
   els.portableImportClose?.addEventListener("click", closePortableImportModal);
   els.portableImportModal?.addEventListener("click", (event) => {
@@ -13628,6 +14395,7 @@ function bindEvents() {
   });
   els.historyToggle.addEventListener("click", toggleHistory);
   els.historyClose.addEventListener("click", () => setHistoryOpen(false));
+  els.syncFolderDrafts.addEventListener("click", () => syncFolderDrafts({ announce: true }));
   els.historyFilterButtons.forEach((button) => {
     button.addEventListener("click", () => setHistoryFilter(button.dataset.historyFilter));
   });
@@ -13659,6 +14427,7 @@ syncGuideReadOnlyMode();
 resetTextHistory();
 updateProjectHistory();
 bindEvents();
+void syncFolderDrafts();
 void loadObsidianVaultConnection();
 void initializeCloudAccount();
 if (window.lucide) {

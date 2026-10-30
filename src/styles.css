@@ -1051,6 +1051,20 @@ body[data-guide-readonly="true"] .editor-textarea:focus {
   font-weight: 600;
 }
 
+.history-folder-sync {
+  margin-left: auto;
+}
+
+.history-folder-sync[hidden] {
+  display: none;
+}
+
+.history-item small em {
+  flex: 0 0 auto;
+  font-style: normal;
+  font-weight: 800;
+}
+
 .history-filter {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -1590,7 +1604,8 @@ body[data-app-mode="article"] .profile-inline {
 }
 
 .underline-popover,
-.size-popover {
+.size-popover,
+.bg-theme-popover {
   display: grid;
   gap: 12px;
   width: 280px;
@@ -1966,6 +1981,92 @@ body[data-app-mode="article"] .profile-inline {
 
 .selection-size-custom .custom-color-action {
   flex: none;
+}
+
+.bg-theme-popover {
+  width: 304px;
+}
+
+.bg-theme-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.bg-theme-option {
+  display: grid;
+  gap: 5px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--control-bg);
+  color: var(--control-text);
+  font: inherit;
+  cursor: pointer;
+  transition: transform 120ms ease, border-color 120ms ease;
+}
+
+.bg-theme-option:hover {
+  transform: translateY(-1px);
+  border-color: var(--active-border);
+}
+
+.bg-theme-option[aria-pressed="true"] {
+  border-color: var(--active-border);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+/* 缩略图用 CSS 近似 drawBackground 里的纹理，真实效果以右侧卡片为准。 */
+.bg-theme-swatch {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 3 / 4;
+  border: 1px solid rgb(0 0 0 / 0.08);
+  border-radius: 5px;
+  background: var(--swatch-bg);
+  font-size: 13px;
+  font-weight: 760;
+  overflow: hidden;
+}
+
+.bg-theme-swatch.is-grid {
+  background:
+    linear-gradient(var(--swatch-ink) 1px, transparent 1px) 0 0 / 8px 8px,
+    linear-gradient(90deg, var(--swatch-ink) 1px, transparent 1px) 0 0 / 8px 8px,
+    var(--swatch-bg);
+}
+
+.bg-theme-swatch.is-lines {
+  background:
+    linear-gradient(transparent 9px, var(--swatch-ink) 9px, var(--swatch-ink) 10px) 0 0 / 100% 10px,
+    var(--swatch-bg);
+}
+
+.bg-theme-swatch.is-dots {
+  background:
+    radial-gradient(circle, var(--swatch-ink) 1px, transparent 1.4px) 0 0 / 7px 7px,
+    var(--swatch-bg);
+}
+
+.bg-theme-swatch.is-gradient {
+  background: linear-gradient(135deg, var(--swatch-bg), var(--swatch-bg-2));
+}
+
+.bg-theme-swatch i {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+}
+
+.bg-theme-label {
+  font-size: 11px;
+  font-weight: 720;
+  text-align: center;
+  white-space: nowrap;
 }
 
 .emoji-popover {
