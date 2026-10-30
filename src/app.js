@@ -9,6 +9,10 @@ const LIVE_PAGE_HEIGHT = 1440;
 const CARD_SIDE_PADDING = 42;
 const CARD_CONTENT_WIDTH = CANVAS_WIDTH - CARD_SIDE_PADDING * 2;
 const CARD_MAX_IMAGE_HEIGHT = CANVAS_HEIGHT - CARD_SIDE_PADDING - 62;
+// 页脚：分割线下方左侧标题、右侧页码，正文需在分割线以上留出间距
+const CARD_FOOTER_DIVIDER_Y = CANVAS_HEIGHT - 74;
+const CARD_FOOTER_TEXT_Y = CANVAS_HEIGHT - 37;
+const CARD_CONTENT_BOTTOM = CARD_FOOTER_DIVIDER_Y - 20;
 const DEFAULT_CARD_FONT_SIZE = 34;
 const DEFAULT_CARD_LINE_HEIGHT = 1.85;
 const UNDERLINE_GAP = 15;
@@ -91,8 +95,35 @@ function scopedStorageKey(baseKey, scope = activeStorageScope) {
   return scope === "local" ? baseKey : `${baseKey}.${scope}`;
 }
 
-function storageForScope(scope = activeStorageScope) {
-  return scope === "guest" ? sessionStorage : localStorage;
+// 游客稿件也放 localStorage，关掉浏览器后原稿列表仍在；键名带 .guest 后缀，和账号数据分开。
+function storageForScope() {
+  return localStorage;
+}
+
+// 游客稿件以前存在 sessionStorage：读取时把当前标签页里的旧数据并入 localStorage，只搬一次。
+function migrateGuestSessionStore() {
+  for (const baseKey of [PROJECTS_STORAGE_KEY, STORAGE_KEY, CUSTOM_COLOR_PALETTE_STORAGE_KEY]) {
+    const key = scopedStorageKey(baseKey, "guest");
+    try {
+      const legacy = sessionStorage.getItem(key);
+      if (!legacy) continue;
+      const current = localStorage.getItem(key);
+      if (!current) {
+        localStorage.setItem(key, legacy);
+      } else if (baseKey === PROJECTS_STORAGE_KEY) {
+        const stored = JSON.parse(current);
+        const incoming = JSON.parse(legacy);
+        const known = new Set((stored.projects || []).map((project) => project?.id));
+        const merged = [...(stored.projects || []), ...(incoming.projects || []).filter((project) => !known.has(project?.id))]
+          .sort((a, b) => (Number(b?.updatedAt) || 0) - (Number(a?.updatedAt) || 0))
+          .slice(0, MAX_PROJECTS);
+        localStorage.setItem(key, JSON.stringify({ ...stored, projects: merged }));
+      }
+      sessionStorage.removeItem(key);
+    } catch {
+      // 隐私模式或配额不足时保留 sessionStorage 原样，下次再试。
+    }
+  }
 }
 
 function livePhotoApiUrl(path) {
@@ -130,6 +161,7 @@ const els = {
   content: $("#contentInput"),
   pages: $("#pages"),
   pageCount: $("#pageCount"),
+  draftTitle: $("#draftTitleInput"),
   status: $("#statusText"),
   exportProgress: $("#exportProgress"),
   exportProgressTitle: $("#exportProgressTitle"),
@@ -432,20 +464,8 @@ const els = {
   featureBadges: document.querySelectorAll("[data-feature-badge]"),
 };
 
-const sampleAvatar =
-  "data:image/svg+xml;charset=utf-8," +
-  encodeURIComponent(`
-<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160">
-  <rect width="160" height="160" fill="#b8dd8a"/>
-  <circle cx="80" cy="82" r="55" fill="#f5f3d8" stroke="#223622" stroke-width="7"/>
-  <path d="M42 48c16-15 56-16 76 1" fill="none" stroke="#223622" stroke-width="8" stroke-linecap="round"/>
-  <circle cx="59" cy="75" r="7" fill="#223622"/>
-  <circle cx="100" cy="75" r="7" fill="#223622"/>
-  <path d="M63 105c10 9 25 9 35 0" fill="none" stroke="#223622" stroke-width="7" stroke-linecap="round"/>
-  <rect x="39" y="62" width="31" height="20" rx="6" fill="none" stroke="#223622" stroke-width="5"/>
-  <rect x="90" y="62" width="31" height="20" rx="6" fill="none" stroke="#223622" stroke-width="5"/>
-  <path d="M70 72h20" stroke="#223622" stroke-width="5"/>
-</svg>`);
+// 默认头像数据在 src/default-avatar.js，需在本文件之前加载。
+const sampleAvatar = window.DEFAULT_AVATAR_DATA_URL;
 
 const sampleImage =
   "data:image/svg+xml;charset=utf-8," +
@@ -676,6 +696,7 @@ const obsidianVault = {
 
 function defaultFormState() {
   return {
+    title: "",
     content: defaultText,
     displayName: "捏捏番茄（AI图文版）",
     handle: DEFAULT_HANDLE,
@@ -706,6 +727,7 @@ function blankFormState() {
   return {
     ...defaultFormState(),
     ...(profile || {}),
+    title: "",
     content: "",
     images: {},
   };
@@ -912,6 +934,7 @@ function syncGuideReadOnlyMode() {
   document.body.dataset.guideReadonly = readOnly ? "true" : "false";
   els.content.readOnly = readOnly;
   els.content.setAttribute("aria-readonly", readOnly ? "true" : "false");
+  els.draftTitle.readOnly = readOnly;
 
   document
     .querySelectorAll(
@@ -944,6 +967,7 @@ function syncGuideReadOnlyMode() {
 
 function readForm() {
   return {
+    title: els.draftTitle.value.trim(),
     content: els.content.value,
     displayName: els.displayName.value.trim() || "未命名作者",
     handle: normalizeHandle(els.handle.value),
@@ -988,8 +1012,7 @@ function normalizeAuthorProfile(data = {}) {
   };
 }
 
-// 头像、昵称这类设置在任何模式下都要跨次访问保留，所以一律放 localStorage；
-// 游客的草稿仍放 sessionStorage，关掉标签页就清空。
+// 头像、昵称这类设置在任何模式下都要跨次访问保留，所以一律放 localStorage。
 function authorProfileStorage() {
   return localStorage;
 }
@@ -998,7 +1021,7 @@ function loadStoredAuthorProfile() {
   try {
     const key = scopedStorageKey(AUTHOR_PROFILE_STORAGE_KEY);
     // 兼容改动前存在 sessionStorage 里的游客资料
-    const raw = authorProfileStorage().getItem(key) || storageForScope().getItem(key);
+    const raw = authorProfileStorage().getItem(key) || sessionStorage.getItem(key);
     return raw ? normalizeAuthorProfile(JSON.parse(raw)) : null;
   } catch {
     return null;
@@ -1023,6 +1046,8 @@ function applyForm(data) {
     ? projectProfile
     : loadStoredAuthorProfile() || projectProfile;
   els.content.value = data.content ?? defaultText;
+  els.draftTitle.value = typeof data.title === "string" ? data.title : "";
+  updateDraftTitlePlaceholder();
   els.displayName.value = profile.displayName;
   els.handle.value = profile.handle;
   els.textColor.value = data.textColor ?? "#202938";
@@ -1678,7 +1703,7 @@ function updateAccountUi() {
   if (els.accountMenuDescription) {
     els.accountMenuDescription.textContent = signedIn
       ? "只同步头像昵称；请下载 ZIP 保留原稿"
-      : "草稿仅临时保存在当前标签页";
+      : "稿件保存在本浏览器的原稿列表";
   }
   if (els.accountMenuLogin) els.accountMenuLogin.hidden = signedIn;
   if (els.accountMenuManage) els.accountMenuManage.hidden = !signedIn;
@@ -2512,8 +2537,8 @@ async function chooseGuestMode() {
   await activateGuestWorkspace();
   finishEntryChoice("guest");
   els.status.textContent = ACCOUNT_MAINTENANCE
-    ? "游客模式 · 新稿不上传云端，关闭前请保存 ZIP 原稿"
-    : "游客模式：内容仅临时保存在当前标签页";
+    ? "游客模式 · 稿件保存在本浏览器，不上传云端"
+    : "游客模式：稿件保存在本浏览器的原稿列表";
 }
 
 function hasSeenMaintenanceWelcome() {
@@ -2759,17 +2784,10 @@ function hydrateCloudProjectOnce(project) {
   return hydratingCloudProjects.get(key);
 }
 
-/** 迁移期保留登录用户的本机历史入口；11 月起在线版隐藏入口，数据留在本机供恢复。 */
-function syncHistoryAvailability() {
-  const disabled = activeStorageScope === "guest" || (!LOCAL_DEPLOYMENT_MODE && !ACCOUNT_MAINTENANCE);
-  document.body.classList.toggle("history-disabled", disabled);
-  if (disabled) setHistoryOpen(false);
-}
-
 async function activateWorkspaceScope(scope, projects = null, profile = null) {
   cloudState.loadingWorkspace = true;
   activeStorageScope = scope;
-  syncHistoryAvailability();
+  if (scope === "guest") migrateGuestSessionStore();
   buildSelectionSwatches("color");
   buildSelectionSwatches("bg");
   try {
@@ -3304,7 +3322,7 @@ async function flushCloudProfileSync() {
 
 async function importLocalProjectsToAccount() {
   if (!cloudState.user || !cloudState.localImportProjects.length) return;
-  // 草稿改为本机保存后，导入就是并进这个账号在本机的历史记录，不经过云端。
+  // 草稿改为本机保存后，导入就是并进这个账号在本机的原稿列表，不经过云端。
   // 图片缓存键只跟项目和图片编号有关，不分作用域，直接复用。
   const count = cloudState.localImportProjects.length;
   const existing = new Set(state.projects.map((project) => project.id));
@@ -3315,7 +3333,7 @@ async function importLocalProjectsToAccount() {
   saveProjectStore();
   updateProjectHistory();
   cloudState.localImportProjects = [];
-  setAccountNotice(`已把 ${count} 条游客 / 本机草稿加进这个账号的历史记录，原数据仍然保留。`, "success");
+  setAccountNotice(`已把 ${count} 条游客 / 本机草稿加进这个账号的原稿列表，原数据仍然保留。`, "success");
   updateAccountUi();
 }
 
@@ -3407,6 +3425,7 @@ function projectFolderName(project) {
 }
 
 function loadProjectStore() {
+  if (activeStorageScope === "guest") migrateGuestSessionStore();
   try {
     const raw = storageForScope().getItem(scopedStorageKey(PROJECTS_STORAGE_KEY));
     if (raw) {
@@ -3462,11 +3481,18 @@ function saveProjectStore() {
 }
 
 function projectTitleFromData(data) {
+  const customTitle = String(data.title || "").trim();
+  if (customTitle) return customTitle.slice(0, 40);
   const contentLine = String(data.content || "")
     .split("\n")
     .map((line) => line.replace(/^\s*#+\s*/, "").trim())
     .find((line) => line && !line.startsWith("[[image:"));
   return (contentLine || data.displayName || "未命名图文").slice(0, 24);
+}
+
+// 标题留空时，占位文字显示正文第一行，也就是列表、页脚和文件名实际会用的标题。
+function updateDraftTitlePlaceholder() {
+  els.draftTitle.placeholder = projectTitleFromData({ content: els.content.value });
 }
 
 function formatProjectTime(time) {
@@ -3498,7 +3524,7 @@ function updateProjectHistory() {
   if (!visibleProjects.length) {
     const empty = document.createElement("div");
     empty.className = "history-empty";
-    empty.textContent = state.historyFilter === "article" ? "暂无长文记录" : state.historyFilter === "cards" ? "暂无图文记录" : "暂无历史记录";
+    empty.textContent = state.historyFilter === "article" ? "暂无长文原稿" : state.historyFilter === "cards" ? "暂无图文原稿" : "暂无原稿";
     els.projectHistory.append(empty);
     return;
   }
@@ -3520,7 +3546,7 @@ function updateProjectHistory() {
       ${
         builtIn
           ? '<span class="history-lock" title="内置说明书不可修改"><i data-lucide="lock"></i></span>'
-          : `<button type="button" class="history-delete" title="删除历史记录" aria-label="删除 ${escapeHtml(project.title || "未命名图文")}">
+          : `<button type="button" class="history-delete" title="删除原稿" aria-label="删除 ${escapeHtml(project.title || "未命名图文")}">
               <i data-lucide="trash-2"></i>
             </button>`
       }
@@ -3537,17 +3563,12 @@ function setHistoryFilter(filter) {
   updateProjectHistory();
 }
 
-function historyEnabled() {
-  return !document.body.classList.contains("history-disabled");
-}
-
 function setHistoryOpen(open) {
   if (!els.historySidebar) return;
-  if (open && !historyEnabled()) return;
   els.historySidebar.classList.toggle("open", open);
   els.workspace?.classList.toggle("history-open", open);
-  els.historyToggle?.setAttribute("aria-label", open ? "收起历史记录" : "打开历史记录");
-  els.historyToggle?.setAttribute("title", open ? "收起历史记录" : "打开历史记录");
+  els.historyToggle?.setAttribute("aria-label", open ? "收起原稿列表" : "打开原稿列表");
+  els.historyToggle?.setAttribute("title", open ? "收起原稿列表" : "打开原稿列表");
 }
 
 function toggleHistory() {
@@ -3630,8 +3651,6 @@ async function deleteProject(projectId) {
 }
 
 async function createNewProject() {
-  if (ACCOUNT_MAINTENANCE && activeStorageScope === "guest" && !isBuiltInProjectId(state.currentProjectId)
-    && !window.confirm("游客模式没有历史入口。新建后，当前稿将无法从页面找回；请先从右侧下载菜单保存可编辑原稿。确定新建吗？")) return;
   saveState();
   const project = createProject(blankFormState());
   state.projects = [project, ...state.projects.filter((item) => item.id !== project.id)].slice(0, MAX_PROJECTS);
@@ -3641,10 +3660,7 @@ async function createNewProject() {
   resetTextHistory();
   updateProjectHistory();
   await render();
-  // 历史栏关闭时，上一条没有直接入口；提示用户从 ZIP 恢复。
-  els.status.textContent = historyEnabled()
-    ? "已新建图文，上一条已保存在历史记录"
-    : "已新建图文；需要保留原稿时请下载 ZIP";
+  els.status.textContent = "已新建图文，上一篇可在左侧原稿列表切换";
 }
 
 const FIRST_RUN_ONBOARDING_STEPS = [
@@ -5535,9 +5551,7 @@ async function importPortableProject({ read, source, listed }) {
     imported.data.images[id] = restored;
   }
   saveState();
-  state.projects = activeStorageScope === "guest"
-    ? [imported]
-    : [imported, ...state.projects.filter((item) => !isBuiltInProject(item))];
+  state.projects = [imported, ...state.projects.filter((item) => !isBuiltInProject(item))].slice(0, MAX_PROJECTS);
   state.currentProjectId = imported.id;
   applyForm(imported.data);
   syncGuideReadOnlyMode();
@@ -5625,9 +5639,7 @@ function openPortableImportModal() {
   els.portableImportChoice.hidden = true;
   els.portableImportPreview.hidden = true;
   els.portableImportConfirm.disabled = true;
-  els.portableImportWarning.textContent = activeStorageScope === "guest"
-    ? "导入会替换当前游客稿；未保存的内容请先下载原稿。"
-    : "导入后会新增一篇稿件，不会覆盖当前稿。";
+  els.portableImportWarning.textContent = "导入后会新增到原稿列表，不会覆盖当前稿。";
   setPortableImportStatus("选择可编辑原稿 ZIP 或迁移 ZIP；多篇稿件可在包内选择。");
   els.portableImportModal.classList.remove("hidden");
   setDialogBackgroundInert(true);
@@ -8191,7 +8203,7 @@ function contentBoundsForHeader(showHeader) {
     left: CARD_SIDE_PADDING,
     right: CANVAS_WIDTH - CARD_SIDE_PADDING,
     top: showHeader ? 158 : CARD_SIDE_PADDING,
-    bottom: CANVAS_HEIGHT - 62,
+    bottom: CARD_CONTENT_BOTTOM,
   };
 }
 
@@ -8380,17 +8392,18 @@ function renderPage(page, index, total) {
   const ctx = canvas.getContext("2d");
   ctx.imageSmoothingQuality = "high";
   ctx.setTransform(CANVAS_RENDER_SCALE, 0, 0, CANVAS_RENDER_SCALE, 0, 0);
-  drawPageToContext(ctx, page);
+  drawPageToContext(ctx, page, index, total);
   canvas._imageHits = collectImageHits(page);
   canvas._imageDropTargets = collectImageDropTargets(page);
   return canvas;
 }
 
-function drawPageToContext(ctx, page) {
+function drawPageToContext(ctx, page, index, total) {
   drawBackground(ctx, page.settings);
   if (page.showHeader !== false) {
     drawHeader(ctx, page.settings, page.avatar, page.badge);
   }
+  drawFooter(ctx, page.settings, index, total);
   drawQuoteBars(ctx, page);
 
   for (const item of page.items) {
@@ -8499,11 +8512,44 @@ function drawHeader(ctx, settings, avatar, badge) {
   ctx.fillText(clampText(ctx, settings.handle, 480), textX, 113);
 
   ctx.fillStyle = darkCard ? "rgba(255,255,255,.5)" : "#9aa2af";
-  for (let i = 0; i < 3; i += 1) {
-    ctx.beginPath();
-    ctx.arc(769 + i * 16, 79, 5, 0, Math.PI * 2);
-    ctx.fill();
-  }
+  ctx.font = `400 26px ${fontFamilyForText("0", settings)}`;
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
+  ctx.fillText(formatCardDate(new Date()), CANVAS_WIDTH - CARD_SIDE_PADDING, 79);
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+}
+
+function formatCardDate(date) {
+  return `${date.getFullYear()}.${String(date.getMonth() + 1).padStart(2, "0")}.${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function drawFooter(ctx, settings, index, total) {
+  const darkCard = isDarkHexColor(settings.bgColor);
+  const left = CARD_SIDE_PADDING;
+  const right = CANVAS_WIDTH - CARD_SIDE_PADDING;
+
+  ctx.save();
+  ctx.strokeStyle = darkCard ? "rgba(255,255,255,.16)" : "rgba(32,41,56,.12)";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(left, CARD_FOOTER_DIVIDER_Y);
+  ctx.lineTo(right, CARD_FOOTER_DIVIDER_Y);
+  ctx.stroke();
+
+  ctx.fillStyle = darkCard ? "rgba(255,255,255,.5)" : "#9aa2af";
+  ctx.textBaseline = "middle";
+  const pageLabel = `${index + 1}/${total}`;
+  ctx.font = `400 24px ${fontFamilyForText(pageLabel, settings)}`;
+  ctx.textAlign = "right";
+  ctx.fillText(pageLabel, right, CARD_FOOTER_TEXT_Y);
+  const pageLabelWidth = ctx.measureText(pageLabel).width;
+
+  const title = projectTitleFromData(settings);
+  ctx.font = `400 24px ${fontFamilyForText(title, settings)}`;
+  ctx.textAlign = "left";
+  ctx.fillText(clampText(ctx, title, right - left - pageLabelWidth - 40), left, CARD_FOOTER_TEXT_Y);
+  ctx.restore();
 }
 
 function isDarkHexColor(hex) {
@@ -10239,6 +10285,7 @@ async function render() {
   await Promise.all([hydrateLiveMediaForState(), hydrateImageSourcesForState()]);
   if (seq !== renderSequence) return;
   const settings = readForm();
+  updateDraftTitlePlaceholder();
   updateAppMode();
   updateArticleControls();
   if (state.appMode === "article") {
@@ -11037,7 +11084,7 @@ function setPreviewImageDropTarget(frame, canvas, clientY, direction = 0) {
     dropTarget = { ...target, after: true, indicatorY: target.y + target.height };
   }
   if (!dropTarget) {
-    const bounds = canvas._page?.bounds || { top: CARD_SIDE_PADDING, bottom: CANVAS_HEIGHT - 62 };
+    const bounds = canvas._page?.bounds || { top: CARD_SIDE_PADDING, bottom: CARD_CONTENT_BOTTOM };
     dropTarget = {
       sourceStart: els.content.value.length,
       sourceEnd: els.content.value.length,
@@ -12918,6 +12965,7 @@ function bindEvents() {
   els.content.addEventListener("drop", handleEditorDrop);
 
   [
+    els.draftTitle,
     els.displayName,
     els.handle,
     els.textColor,

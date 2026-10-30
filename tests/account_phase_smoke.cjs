@@ -49,27 +49,17 @@ const ctx = {
 vm.createContext(ctx);
 vm.runInContext([
   section('async function resolveAccountPolicy()', 'function scopedStorageKey('),
-  section('function syncHistoryAvailability()', 'async function activateWorkspaceScope('),
   section('function clearRememberedAccountIdentity()', 'function showMaintenanceWelcomeOnce('),
   section('async function signOutAccount()', 'function scheduleCloudProfileSync('),
 ].join('\n'), ctx);
 (async () => {
   await ctx.resolveAccountPolicy();
   assert.equal(ctx.ACCOUNT_MAINTENANCE, true, 'server time overrides client date and production ignores preview overrides');
-  ctx.syncHistoryAvailability();
-  assert.equal(bodyClasses.has('history-disabled'), false, 'signed-in history remains available during migration');
   assert.ok([...timers.values()].some(timer => timer.delay === 31000), 'cutover timer follows server time');
   timers.clear();
   policy = { migration_open: false, server_time: '2026-11-01T00:00:00+08:00' };
   await ctx.resolveAccountPolicy();
   assert.equal(ctx.ACCOUNT_MAINTENANCE, false);
-  ctx.syncHistoryAvailability();
-  assert.equal(bodyClasses.has('history-disabled'), true, 'signed-in history sidebar closes after cutoff');
-  ctx.LOCAL_DEPLOYMENT_MODE = true;
-  ctx.activeStorageScope = 'local';
-  ctx.syncHistoryAvailability();
-  assert.equal(bodyClasses.has('history-disabled'), false, 'standalone local edition keeps its existing history');
-  ctx.LOCAL_DEPLOYMENT_MODE = false;
   assert.equal(timers.size, 0);
   await ctx.chooseGuestMode();
   assert.equal(signouts, 1);

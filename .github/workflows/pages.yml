@@ -1,0 +1,45 @@
+name: Deploy GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Check out the app
+        uses: actions/checkout@v4
+
+      # 纯静态站点，无需构建；只拷页面实际引用的文件，README 截图、测试和本地服务不上线。
+      - name: Collect site files
+        run: |
+          mkdir -p _site/docs
+          cp index.html favicon.ico favicon.svg site.webmanifest robots.txt sitemap.xml googlec57d762f5ce04339.html _site/
+          cp -R src brand _site/
+          cp -R docs/guide-assets _site/docs/
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -13,11 +13,11 @@
          所以这里 .ico 放在最前面，且根目录必须真的有这个文件。 -->
     <!-- 浏览器缓存图标非常久，换图必须带版本号，否则老用户还是看到旧的那张。
          根目录仍留一份不带参数的 /favicon.ico 供爬虫直接抓取。 -->
-    <link rel="icon" href="/favicon.ico?v=20260803" sizes="48x48" />
-    <link rel="shortcut icon" href="/favicon.ico?v=20260803" />
-    <link rel="icon" href="/favicon.svg?v=20260803" type="image/svg+xml" sizes="any" />
-    <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png?v=20260803" />
-    <link rel="manifest" href="/site.webmanifest" />
+    <link rel="icon" href="favicon.ico?v=20260803" sizes="48x48" />
+    <link rel="shortcut icon" href="favicon.ico?v=20260803" />
+    <link rel="icon" href="favicon.svg?v=20260803" type="image/svg+xml" sizes="any" />
+    <link rel="apple-touch-icon" href="brand/apple-touch-icon.png?v=20260803" />
+    <link rel="manifest" href="site.webmanifest" />
     <meta name="theme-color" content="#17202f" />
 
     <meta property="og:type" content="website" />
@@ -35,23 +35,23 @@
     <meta name="twitter:description" content="一份 Markdown，排成小红书图文卡片或公众号长文。实况照片在浏览器本地合成，生成过程不上传原视频。" />
     <meta name="twitter:image" content="https://fawen.fun/brand/og-image.png" />
     <meta name="twitter:creator" content="@iamcora13" />
-    <link rel="stylesheet" href="src/styles.css?v=20261005-migration-folder-logout" />
+    <link rel="stylesheet" href="src/styles.css?v=20261030-draft-title" />
   </head>
-  <body class="entry-choice-pending history-disabled">
+  <body class="entry-choice-pending">
     <main class="workspace">
-      <aside id="historySidebar" class="history-sidebar" aria-label="历史记录">
-        <button id="historyToggleBtn" class="history-tab" type="button" title="打开历史记录" aria-label="打开历史记录">
+      <aside id="historySidebar" class="history-sidebar" aria-label="原稿列表">
+        <button id="historyToggleBtn" class="history-tab" type="button" title="打开原稿列表" aria-label="打开原稿列表">
           <i data-lucide="panel-left-open"></i>
         </button>
         <div class="history-drawer">
           <div class="history-head">
-            <span>历史记录</span>
-            <button id="historyCloseBtn" class="icon-button ghost" type="button" title="收起历史记录" aria-label="收起历史记录">
+            <span>原稿列表</span>
+            <button id="historyCloseBtn" class="icon-button ghost" type="button" title="收起原稿列表" aria-label="收起原稿列表">
               <i data-lucide="panel-left-close"></i>
             </button>
           </div>
-          <small class="history-note">自动保存，点击恢复</small>
-          <div class="history-filter" aria-label="历史记录筛选">
+          <small class="history-note">自动保存在本浏览器，点击切换</small>
+          <div class="history-filter" aria-label="原稿列表筛选">
             <button type="button" class="active" data-history-filter="all">全部</button>
             <button type="button" data-history-filter="cards">图文</button>
             <button type="button" data-history-filter="article">长文</button>
@@ -59,13 +59,13 @@
           <div id="projectHistory" class="history-list"></div>
         </div>
       </aside>
-      <button class="panel-resizer" data-panel-resize="history" type="button" aria-label="拖动调整历史栏宽度"></button>
+      <button class="panel-resizer" data-panel-resize="history" type="button" aria-label="拖动调整原稿列表宽度"></button>
 
       <aside class="editor-panel" aria-label="编辑器">
         <div class="brand-row">
           <div class="brand-title">
-            <h1>写了就发</h1>
-            <span class="brand-english">Write Then Publish</span>
+            <h1 class="visually-hidden">写了就发</h1>
+            <input id="draftTitleInput" class="draft-title-input" type="text" maxlength="40" placeholder="未命名图文" aria-label="草稿标题" title="草稿标题，留空则使用正文第一行" />
             <p id="pageCount">0 张图片</p>
           </div>
           <div id="appModeSwitch" class="mode-switch" aria-label="切换工作区">
@@ -459,7 +459,7 @@
             <span class="account-menu-avatar"><i data-lucide="circle-user-round"></i></span>
             <div>
               <strong id="accountMenuTitle">游客模式</strong>
-              <span id="accountMenuDescription">草稿仅临时保存在当前标签页</span>
+              <span id="accountMenuDescription">稿件保存在本浏览器的原稿列表</span>
             </div>
           </div>
           <section id="accountMenuSwitchSection" class="account-menu-switch" hidden aria-label="已登录账号">
@@ -564,7 +564,7 @@
               <div>
                 <span class="entry-choice-kicker">临时使用</span>
                 <h3>游客模式</h3>
-                <p>不注册，直接排版和导出。内容只留在当前浏览器标签页，关闭后不保证保留。</p>
+                <p>不注册，直接排版和导出。稿件保存在本浏览器的原稿列表，换设备请下载 ZIP 原稿。</p>
               </div>
               <ul>
                 <li><i data-lucide="check"></i>立即开始，不上传云端</li>
@@ -787,7 +787,7 @@
             <span id="portableImportDetails"></span>
           </div>
           <div class="portable-import-actions">
-            <p id="portableImportWarning">导入会替换当前游客稿；未保存的内容请先下载原稿。</p>
+            <p id="portableImportWarning">导入后会新增到原稿列表，不会覆盖当前稿。</p>
             <button id="portableImportConfirmBtn" class="primary-button" type="button" disabled>打开并继续编辑</button>
           </div>
         </div>
@@ -1371,6 +1371,7 @@
         document.write('<script src="src/supabase.js?v=20261005-migration-zip"><\/script>');
       }
     </script>
-    <script src="src/app.js?v=20261005-migration-folder-logout"></script>
+    <script src="src/default-avatar.js?v=20261030-luffy"></script>
+    <script src="src/app.js?v=20261030-draft-title"></script>
   </body>
 </html>
