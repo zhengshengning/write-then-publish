@@ -1589,7 +1589,8 @@ body[data-app-mode="article"] .profile-inline {
   height: 15px;
 }
 
-.underline-popover {
+.underline-popover,
+.size-popover {
   display: grid;
   gap: 12px;
   width: 280px;
@@ -1904,6 +1905,67 @@ body[data-app-mode="article"] .profile-inline {
 
 .selection-underline-palette {
   min-width: 224px;
+}
+
+#selectionSizeBtn {
+  width: auto;
+  padding: 0 8px;
+}
+
+.selection-size-palette {
+  min-width: 240px;
+}
+
+.selection-size-presets {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.selection-size-preset {
+  min-height: 30px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--control-bg);
+  color: var(--control-text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 720;
+  cursor: pointer;
+  transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.selection-size-preset:hover {
+  transform: translateY(-1px);
+  border-color: var(--active-border);
+  background: var(--active-bg);
+}
+
+.selection-size-custom {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--control-text);
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.selection-size-custom input[type="number"] {
+  flex: 1;
+  min-width: 0;
+  width: 64px;
+  height: 30px;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--control-bg);
+  color: var(--control-text);
+  font: inherit;
+}
+
+.selection-size-custom .custom-color-action {
+  flex: none;
 }
 
 .emoji-popover {
@@ -2585,16 +2647,20 @@ body.export-busy {
   --article-font: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
 
+/* 行内 {{size:N|…}} 以此为基准等比换算，见 renderArticleInlineTokens。 */
 .article-size-small {
-  font-size: 15px;
+  --article-base-size: 15px;
+  font-size: var(--article-base-size);
 }
 
 .article-size-normal {
-  font-size: 17px;
+  --article-base-size: 17px;
+  font-size: var(--article-base-size);
 }
 
 .article-size-large {
-  font-size: 19px;
+  --article-base-size: 19px;
+  font-size: var(--article-base-size);
 }
 
 .article-preview h1,

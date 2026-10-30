@@ -35,7 +35,7 @@
     <meta name="twitter:description" content="一份 Markdown，排成小红书图文卡片或公众号长文。实况照片在浏览器本地合成，生成过程不上传原视频。" />
     <meta name="twitter:image" content="https://fawen.fun/brand/og-image.png" />
     <meta name="twitter:creator" content="@iamcora13" />
-    <link rel="stylesheet" href="src/styles.css?v=20261030-draft-title" />
+    <link rel="stylesheet" href="src/styles.css?v=20261030-size-menu" />
   </head>
   <body class="entry-choice-pending">
     <main class="workspace">
@@ -110,6 +110,35 @@
           <div class="toolbar" aria-label="文字样式">
             <button type="button" class="tool-button" data-format="h1" title="大标题">H1</button>
             <button type="button" class="tool-button" data-format="h2" title="小标题">H2</button>
+            <details id="sizeMenu" class="tool-menu size-menu">
+              <summary class="tool-button" title="字号" aria-label="字号">
+                <i data-lucide="a-large-small"></i>
+              </summary>
+              <div class="tool-popover size-popover" data-inline-size-panel>
+                <div class="color-guide">
+                  <strong>字号</strong>
+                  <span>先选中文字，再点常用字号或输入 12–120 的数字。</span>
+                </div>
+                <div class="selection-size-presets" role="group" aria-label="常用字号">
+                  <button type="button" class="selection-size-preset" data-inline-size="24">24</button>
+                  <button type="button" class="selection-size-preset" data-inline-size="28">28</button>
+                  <button type="button" class="selection-size-preset" data-inline-size="40">40</button>
+                  <button type="button" class="selection-size-preset" data-inline-size="48">48</button>
+                  <button type="button" class="selection-size-preset" data-inline-size="56">56</button>
+                  <button type="button" class="selection-size-preset" data-inline-size="64">64</button>
+                </div>
+                <div class="selection-size-custom">
+                  <label for="inlineSizeInput">字号</label>
+                  <input id="inlineSizeInput" type="number" min="12" max="120" step="1" inputmode="numeric" value="34" data-inline-size-input />
+                  <span aria-hidden="true">px</span>
+                  <button type="button" class="custom-color-action is-save" data-inline-size-apply>应用</button>
+                </div>
+                <button type="button" class="clear-inline-style-action" data-clear-inline-size>
+                  <i data-lucide="eraser"></i>
+                  恢复默认字号
+                </button>
+              </div>
+            </details>
             <button type="button" class="tool-button" data-format="bold" title="加粗"><strong>B</strong></button>
             <button type="button" class="tool-button" data-format="italic" title="斜体"><em>I</em></button>
             <details id="underlineMenu" class="tool-menu underline-menu">
@@ -1247,6 +1276,7 @@
       <div class="selection-toolbar-row">
         <button type="button" class="selection-tool-button selection-format-button" data-format="h1" title="大标题">H1</button>
         <button type="button" class="selection-tool-button selection-format-button" data-format="h2" title="小标题">H2</button>
+        <button id="selectionSizeBtn" class="selection-tool-button selection-format-button" type="button" title="字号" aria-label="字号">字号</button>
         <button type="button" class="selection-tool-button selection-format-button" data-format="bold" title="加粗"><strong>B</strong></button>
         <button type="button" class="selection-tool-button selection-format-button" data-format="italic" title="斜体"><em>I</em></button>
         <button id="selectionUnderlineBtn" class="selection-tool-button selection-format-button" type="button" title="下划线" aria-label="下划线">
@@ -1303,6 +1333,26 @@
             </div>
           </div>
         </details>
+      </div>
+      <div id="selectionSizePalette" class="selection-palette selection-size-palette" data-inline-size-panel hidden>
+        <div class="selection-size-presets" role="group" aria-label="常用字号">
+          <button type="button" class="selection-size-preset" data-inline-size="24">24</button>
+          <button type="button" class="selection-size-preset" data-inline-size="28">28</button>
+          <button type="button" class="selection-size-preset" data-inline-size="40">40</button>
+          <button type="button" class="selection-size-preset" data-inline-size="48">48</button>
+          <button type="button" class="selection-size-preset" data-inline-size="56">56</button>
+          <button type="button" class="selection-size-preset" data-inline-size="64">64</button>
+        </div>
+        <div class="selection-size-custom">
+          <label for="selectionSizeInput">字号</label>
+          <input id="selectionSizeInput" type="number" min="12" max="120" step="1" inputmode="numeric" value="34" data-inline-size-input />
+          <span aria-hidden="true">px</span>
+          <button type="button" class="custom-color-action is-save" data-inline-size-apply>应用</button>
+        </div>
+        <button type="button" class="clear-inline-style-action" data-clear-inline-size>
+          <i data-lucide="eraser"></i>
+          恢复默认字号
+        </button>
       </div>
       <div id="selectionUnderlinePalette" class="selection-palette selection-underline-palette" hidden>
         <div class="selection-underline-options" role="group" aria-label="下划线样式">
@@ -1372,6 +1422,6 @@
       }
     </script>
     <script src="src/default-avatar.js?v=20261030-luffy"></script>
-    <script src="src/app.js?v=20261030-draft-title"></script>
+    <script src="src/app.js?v=20261030-size-menu"></script>
   </body>
 </html>

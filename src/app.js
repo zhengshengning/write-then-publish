@@ -15,6 +15,9 @@ const CARD_FOOTER_TEXT_Y = CANVAS_HEIGHT - 37;
 const CARD_CONTENT_BOTTOM = CARD_FOOTER_DIVIDER_Y - 20;
 const DEFAULT_CARD_FONT_SIZE = 34;
 const DEFAULT_CARD_LINE_HEIGHT = 1.85;
+// {{size:N|文字}} 的 N 按卡片逻辑像素计；长文按正文字号等比换算。
+const INLINE_FONT_SIZE_MIN = 12;
+const INLINE_FONT_SIZE_MAX = 120;
 const UNDERLINE_GAP = 15;
 const CARD_BODY_FONT_WEIGHT = 400;
 const CARD_BODY_STROKE_WIDTH = 0;
@@ -326,6 +329,7 @@ const els = {
   colorMenu: $("#colorMenu"),
   bgColorMenu: $("#bgColorMenu"),
   underlineMenu: $("#underlineMenu"),
+  sizeMenu: $("#sizeMenu"),
   colorTool: $(".color-tool"),
   bgColorTool: $(".bg-color-tool"),
   selectionToolbar: $("#selectionToolbar"),
@@ -335,6 +339,8 @@ const els = {
   selectionColorPalette: $("#selectionColorPalette"),
   selectionBgPalette: $("#selectionBgPalette"),
   selectionUnderlinePalette: $("#selectionUnderlinePalette"),
+  selectionSizeBtn: $("#selectionSizeBtn"),
+  selectionSizePalette: $("#selectionSizePalette"),
   selectionColorSwatches: $("#selectionColorSwatches"),
   selectionBgSwatches: $("#selectionBgSwatches"),
   selectionCustomColor: $("#selectionCustomColorInput"),
@@ -4089,11 +4095,11 @@ function plainTextForCopy(content) {
   // 行内图片引用
   text = text.replace(/\[\[image:[\w-]+(?:\|[\w-]+){0,2}\]\]/g, "");
 
-  // 颜色 / 背景 / 下划线标记：保留内文，循环剥掉嵌套
+  // 颜色 / 背景 / 下划线 / 字号标记：保留内文，循环剥掉嵌套
   let previous;
   do {
     previous = text;
-    text = text.replace(/\{\{(?:color|bg|underline):[^|{}]*\|([\s\S]*?)\}\}/g, "$1");
+    text = text.replace(/\{\{(?:color|bg|underline|size):[^|{}]*\|([\s\S]*?)\}\}/g, "$1");
   } while (text !== previous);
 
   // 加粗 / 斜体星号
@@ -4501,7 +4507,7 @@ function starRunAroundBounds(value, start, end) {
 }
 
 function findExactInlineMarkerWrapper(value, start, end) {
-  const candidates = ["color", "bg", "underline"].map((marker) => {
+  const candidates = ["color", "bg", "underline", "size"].map((marker) => {
     const target = findEnclosingMarker(value, start, end, marker);
     if (!target) return null;
     const innerStart = value.indexOf("|", target.open) + 1;
@@ -4548,7 +4554,8 @@ function unwrapInlineStyleBounds(value, start, end) {
     const colorMatch = matchInlineMarker(value, innerStart, "color");
     const bgMatch = colorMatch ? null : matchInlineMarker(value, innerStart, "bg");
     const underlineMatch = colorMatch || bgMatch ? null : matchUnderlineMarker(value, innerStart);
-    const inlineMatch = colorMatch || bgMatch || underlineMatch;
+    const sizeMatch = colorMatch || bgMatch || underlineMatch ? null : matchSizeMarker(value, innerStart);
+    const inlineMatch = colorMatch || bgMatch || underlineMatch || sizeMatch;
 
     if (inlineMatch && inlineMatch.end === innerEnd) {
       innerStart = inlineMatch.innerStart;
@@ -4617,6 +4624,93 @@ function findEnclosingMarker(value, start, end, marker) {
 function underlineStyleForMarker(value, marker) {
   if (!marker) return "";
   return value.slice(marker.open).match(/^\{\{underline:(solid|dashed)\|/)?.[1] || "";
+}
+
+function selectionInlineFontSize() {
+  const value = els.content.value;
+  const marker = findRecolorableMarker(value, els.content.selectionStart, els.content.selectionEnd, "size")
+    || findEnclosingMarker(value, els.content.selectionStart, els.content.selectionEnd, "size");
+  return marker ? matchSizeMarker(value, marker.open)?.size || null : null;
+}
+
+// 与换色同一套规则：选区已整段带字号时直接改数字并扁平化内层同类标记，
+// 否则在选区外包一层 {{size:N|…}}。
+function prefillInlineSizeInput(panel) {
+  const input = panel?.querySelector("[data-inline-size-input]");
+  if (!input) return;
+  input.value = String(selectionInlineFontSize() || normalizeInlineFontSize(els.fontSize.value) || DEFAULT_CARD_FONT_SIZE);
+}
+
+function applyFontSizeToSelection(rawSize) {
+  const size = normalizeInlineFontSize(rawSize);
+  if (!size) {
+    els.status.textContent = `请输入 ${INLINE_FONT_SIZE_MIN}–${INLINE_FONT_SIZE_MAX} 之间的字号`;
+    return false;
+  }
+  const textarea = els.content;
+  const viewport = captureTextareaViewport(textarea);
+  const start = textarea.selectionStart;
+  const end = textarea.selectionEnd;
+  if (start === end) {
+    els.status.textContent = "请先选中要调整字号的文字";
+    return false;
+  }
+  const markerOpen = `{{size:${size}|`;
+  const value = textarea.value;
+  commitTextHistory();
+  let nextValue;
+  let selectFrom;
+  let selectTo;
+  const existing = findRecolorableMarker(value, start, end, "size");
+  if (existing) {
+    const innerStart = value.indexOf("|", existing.open) + 1;
+    const inner = flattenMarkerKind(value.slice(innerStart, existing.close - 2), "size");
+    nextValue = `${value.slice(0, existing.open)}${markerOpen}${inner}}}${value.slice(existing.close)}`;
+    const nextInnerStart = existing.open + markerOpen.length;
+    const visible = unwrapInlineStyleBounds(nextValue, nextInnerStart, nextInnerStart + inner.length);
+    selectFrom = visible.start;
+    selectTo = visible.end;
+  } else {
+    const selected = value.slice(start, end);
+    nextValue = `${value.slice(0, start)}${markerOpen}${selected}}}${value.slice(end)}`;
+    selectFrom = start + markerOpen.length;
+    selectTo = selectFrom + selected.length;
+  }
+  textarea.value = nextValue;
+  restoreTextareaSelection(textarea, selectFrom, selectTo, viewport);
+  commitTextHistory();
+  requestRender();
+  els.status.textContent = `已应用字号 ${size}`;
+  return true;
+}
+
+function removeFontSizeFromSelection() {
+  const textarea = els.content;
+  const viewport = captureTextareaViewport(textarea);
+  const start = textarea.selectionStart;
+  const end = textarea.selectionEnd;
+  if (start === end) {
+    els.status.textContent = "请先选中要恢复字号的文字";
+    return false;
+  }
+  const value = textarea.value;
+  const target = findRecolorableMarker(value, start, end, "size")
+    || findEnclosingMarker(value, start, end, "size");
+  if (!target) {
+    els.status.textContent = "选中内容没有单独设置字号";
+    return false;
+  }
+  const innerStart = value.indexOf("|", target.open) + 1;
+  const inner = flattenMarkerKind(value.slice(innerStart, target.close - 2), "size");
+  const nextValue = `${value.slice(0, target.open)}${inner}${value.slice(target.close)}`;
+  const visible = unwrapInlineStyleBounds(nextValue, target.open, target.open + inner.length);
+  commitTextHistory();
+  textarea.value = nextValue;
+  restoreTextareaSelection(textarea, visible.start, visible.end, viewport);
+  commitTextHistory();
+  requestRender();
+  els.status.textContent = "已恢复默认字号";
+  return true;
 }
 
 function applyColorToSelection(kind, color) {
@@ -4862,6 +4956,7 @@ function setSelectionPalette(kind, open) {
     color: els.selectionColorPalette,
     bg: els.selectionBgPalette,
     underline: els.selectionUnderlinePalette,
+    size: els.selectionSizePalette,
   };
   Object.entries(palettes).forEach(([name, palette]) => {
     if (!palette) return;
@@ -4883,7 +4978,8 @@ function setSelectionPalette(kind, open) {
 function selectionPaletteIsOpen() {
   return !els.selectionColorPalette?.hidden
     || !els.selectionBgPalette?.hidden
-    || !els.selectionUnderlinePalette?.hidden;
+    || !els.selectionUnderlinePalette?.hidden
+    || !els.selectionSizePalette?.hidden;
 }
 
 function refreshSelectionToolbarColors() {
@@ -7771,6 +7867,26 @@ function matchInlineMarker(text, i, kind) {
   return { color, innerStart: colorEnd + 1, innerEnd: close - 2, end: close };
 }
 
+function normalizeInlineFontSize(value) {
+  const size = Math.round(Number(value));
+  if (!Number.isFinite(size)) return null;
+  return clamp(size, INLINE_FONT_SIZE_MIN, INLINE_FONT_SIZE_MAX);
+}
+
+function matchSizeMarker(text, i) {
+  const match = text.slice(i, i + 16).match(/^\{\{size:(\d{1,3})\|/);
+  if (!match) return null;
+  const size = normalizeInlineFontSize(match[1]);
+  const close = findMatchingMarkerClose(text, i);
+  if (!size || close === -1) return null;
+  return {
+    size,
+    innerStart: i + match[0].length,
+    innerEnd: close - 2,
+    end: close,
+  };
+}
+
 function matchUnderlineMarker(text, i) {
   const match = text.slice(i).match(/^\{\{underline:(solid|dashed)\|/);
   if (!match) return null;
@@ -7821,6 +7937,18 @@ function parseInline(text, baseStart = 0) {
         ),
       );
       i = underlineMatch.end;
+      continue;
+    }
+
+    const sizeMatch = matchSizeMarker(text, i);
+    if (sizeMatch) {
+      tokens.push(
+        ...applyInlineStyle(
+          parseInline(text.slice(sizeMatch.innerStart, sizeMatch.innerEnd), baseStart + sizeMatch.innerStart),
+          { size: sizeMatch.size },
+        ),
+      );
+      i = sizeMatch.end;
       continue;
     }
 
@@ -7880,7 +8008,7 @@ function parseInline(text, baseStart = 0) {
       }
     }
 
-    const nextMarkers = ["[[image:", "[", "{{underline:", "{{color:", "{{bg:", "***", "**", "*"]
+    const nextMarkers = ["[[image:", "[", "{{underline:", "{{size:", "{{color:", "{{bg:", "***", "**", "*"]
       .map((marker) => text.indexOf(marker, i + 1))
       .filter((index) => index !== -1);
     const next = nextMarkers.length ? Math.min(...nextMarkers) : text.length;
@@ -7960,10 +8088,14 @@ function styleForBlock(type, settings) {
   };
 }
 
+function tokenFontSize(token, style) {
+  return token?.size || style.size;
+}
+
 function fontString(style, token = {}) {
   const italic = token.italic || style.italic ? "italic " : "";
   const weight = token.bold ? Math.max(700, Number(style.weight) || CARD_BODY_FONT_WEIGHT) : style.weight;
-  return `${italic}${weight} ${style.size}px ${fontFamilyForText(token.text, style)}`;
+  return `${italic}${weight} ${tokenFontSize(token, style)}px ${fontFamilyForText(token.text, style)}`;
 }
 
 function fontFamilyForText(text, settings) {
@@ -8102,7 +8234,10 @@ function buildTableLayout(ctx, block, settings, maxWidth) {
   const rowPadding = 10;
   const makeRow = (cells, style) => {
     const lines = Array.from({ length: columns }, (_, index) => wrapTokens(ctx, cells[index] || [], style, Math.max(34, cellWidth - rowPadding * 2)));
-    const lineHeight = Math.ceil(style.size * style.lineHeight);
+    const lineHeight = Math.max(
+      Math.ceil(style.size * style.lineHeight),
+      ...lines.flat().map((line) => lineHeightForTokens(line, style)),
+    );
     return {
       cells: lines,
       style,
@@ -8125,7 +8260,14 @@ function blankLineGap(settings) {
 
 function tokenLetterSpacing(token, style) {
   if (!token?.text || /^\s+$/.test(token.text)) return 0;
-  return Math.max(0.8, style.size * 0.025);
+  return Math.max(0.8, tokenFontSize(token, style) * 0.025);
+}
+
+// 行内字号比所在块大时，这一行需要撑高，否则会压到上下行。
+function lineHeightForTokens(line, style) {
+  const base = Math.ceil(style.size * style.lineHeight);
+  const largest = line.reduce((max, token) => Math.max(max, token.size || 0), 0);
+  return largest > style.size ? Math.max(base, Math.ceil(largest * style.lineHeight)) : base;
 }
 
 function glyphWidth(ctx, token, style) {
@@ -8348,12 +8490,12 @@ async function buildPages(settings) {
     }
 
     const style = styleForBlock(block.type, settings);
-    const lineHeight = Math.ceil(style.size * style.lineHeight);
     const textWidth = style.quote ? contentWidth - 28 : contentWidth;
     const lines = wrapBlockLines(ctx, block, style, textWidth);
     let firstLine = true;
 
     for (const line of lines) {
+      const lineHeight = lineHeightForTokens(line, style);
       const topMargin = firstLine ? (hasContent && previousBlockType !== "spacer" ? style.marginTop : 0) : 0;
       ensureSpace(lineHeight, topMargin);
       page.items.push({
@@ -8669,8 +8811,10 @@ function drawTextLine(ctx, item) {
     ctx.font = fontString(style, token);
     const width = glyphWidth(ctx, token, style);
     if (token.bgColor) {
+      // 按本 token 的字号算高亮块，行被大字号撑高时小字的底色不会跟着变高。
+      const tokenLineHeight = token.size ? Math.ceil(token.size * style.lineHeight) : lineHeight;
       ctx.fillStyle = token.bgColor;
-      roundedRect(ctx, cursor - 3, y + Math.round(lineHeight * 0.14), width + 6, Math.round(lineHeight * 0.72), 7);
+      roundedRect(ctx, cursor - 3, baseline - Math.round(tokenLineHeight * 0.61), width + 6, Math.round(tokenLineHeight * 0.72), 7);
       ctx.fill();
     }
     const textColor = token.color || style.color;
@@ -8766,6 +8910,7 @@ function renderArticlePreview(settings) {
   article.className = `article-preview article-theme-${settings.articleTheme} article-font-${settings.articleFont} article-size-${settings.articleSize}`;
   article.style.setProperty("--article-accent", settings.articleColor);
   article.style.setProperty("--article-underline-gap", `${UNDERLINE_GAP}px`);
+  article.style.setProperty("--card-font-size", String(settings.fontSize || DEFAULT_CARD_FONT_SIZE));
   article.innerHTML = markdownToArticleHtml(settings.content, settings.images);
   hydrateArticleLiveMedia(article, settings.images);
   els.pages.append(article);
@@ -8938,6 +9083,9 @@ function renderArticleInlineTokens(tokens) {
       }
 
       const styles = [];
+      if (token.size) {
+        styles.push(`font-size: calc(var(--article-base-size, 17px) * ${token.size} / var(--card-font-size, ${DEFAULT_CARD_FONT_SIZE}))`);
+      }
       if (token.color) styles.push(`color: ${token.color}`);
       if (token.underline) {
         styles.push("text-decoration-line: underline");
@@ -13058,6 +13206,51 @@ function bindEvents() {
   });
   els.selectionUnderlineBtn?.addEventListener("click", () => {
     setSelectionPalette("underline", els.selectionUnderlinePalette.hidden);
+  });
+  els.selectionSizeBtn?.addEventListener("mousedown", keepTextareaSelection);
+  els.selectionSizeBtn?.addEventListener("click", () => {
+    const open = els.selectionSizePalette.hidden;
+    if (open) prefillInlineSizeInput(els.selectionSizePalette);
+    setSelectionPalette("size", open);
+  });
+  els.sizeMenu?.addEventListener("toggle", () => {
+    if (els.sizeMenu.open) prefillInlineSizeInput(els.sizeMenu);
+  });
+  // 编辑框上方的字号菜单与选区浮动工具栏共用同一套控件，按所在面板取输入框。
+  const closeInlineSizePanels = () => {
+    setSelectionPalette(null, false);
+    if (els.sizeMenu) els.sizeMenu.open = false;
+  };
+  const inlineSizeInputFor = (control) => control.closest("[data-inline-size-panel]")?.querySelector("[data-inline-size-input]");
+  document.querySelectorAll("[data-inline-size]").forEach((button) => {
+    button.addEventListener("mousedown", keepTextareaSelection);
+    button.addEventListener("click", () => {
+      if (applyFontSizeToSelection(button.dataset.inlineSize)) closeInlineSizePanels();
+    });
+  });
+  document.querySelectorAll("[data-inline-size-apply]").forEach((button) => {
+    button.addEventListener("mousedown", keepTextareaSelection);
+    button.addEventListener("click", () => {
+      if (applyFontSizeToSelection(inlineSizeInputFor(button)?.value)) closeInlineSizePanels();
+    });
+  });
+  document.querySelectorAll("[data-inline-size-input]").forEach((input) => {
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        if (applyFontSizeToSelection(input.value)) closeInlineSizePanels();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        closeInlineSizePanels();
+        els.content.focus({ preventScroll: true });
+      }
+    });
+  });
+  document.querySelectorAll("[data-clear-inline-size]").forEach((button) => {
+    button.addEventListener("mousedown", keepTextareaSelection);
+    button.addEventListener("click", () => {
+      if (removeFontSizeFromSelection()) closeInlineSizePanels();
+    });
   });
   els.selectionCustomColor?.addEventListener("input", () => {
     updatePendingCustomColor("color", els.selectionCustomColor.value);
