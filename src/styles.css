@@ -3605,6 +3605,13 @@ body.export-busy {
   color: var(--accent);
 }
 
+.portable-import-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
 .portable-import-folder {
   color: var(--accent);
   font-size: 13px;

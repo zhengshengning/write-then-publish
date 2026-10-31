@@ -213,6 +213,8 @@ const els = {
   portableImportZip: $("#portableImportZipBtn"),
   portableImportFolder: $("#portableImportFolderBtn"),
   portableImportZipInput: $("#portableImportZipInput"),
+  portableImportMarkdown: $("#portableImportMarkdownBtn"),
+  portableImportMarkdownInput: $("#portableImportMarkdownInput"),
   portableImportFolderInput: $("#portableImportFolderInput"),
   cloudMigration: $("#cloudMigrationBtn"),
   cloudMigrationModal: $("#cloudMigrationModal"),
@@ -311,6 +313,7 @@ const els = {
   downloadPdf: $("#downloadPdfBtn"),
   downloadMenu: $("#downloadMenu"),
   copyWechat: $("#copyWechatBtn"),
+  copyFeishu: $("#copyFeishuBtn"),
   syncWechat: $("#syncWechatBtn"),
   articleSettings: $("#articleSettings"),
   articleThemeButtons: document.querySelectorAll("[data-article-theme]"),
@@ -600,7 +603,7 @@ const state = {
   obsidianNotePath: null,
   currentProjectId: null,
   projects: [],
-  historyFilter: "all",
+  historyFilter: "cards",
   panelLayout: {
     history: PANEL_LIMITS.history.fallback,
     editor: PANEL_LIMITS.editor.fallback,
@@ -855,7 +858,7 @@ const articleGuideText = `# 长文说明书
 
 ## 基本流程
 
-1. 切换到“长文”。
+1. 新建原稿后点击“转长文”。
 2. 在左侧输入 Markdown 内容。
 3. 在右侧查看长文预览。
 4. 调整主题、字体、字号和主题色。
@@ -1228,6 +1231,7 @@ function updateAppMode() {
   els.downloadZip.hidden = state.appMode === "article";
   els.downloadArticle.hidden = state.appMode !== "article";
   els.copyWechat.hidden = state.appMode !== "article";
+  els.copyFeishu.hidden = state.appMode !== "article";
   // 草稿箱同步整体还不完善，先全站下线；功能做好后把这里改回按 appMode 判断即可。
   els.syncWechat.hidden = true;
   els.headerModeToggle.hidden = state.appMode === "article";
@@ -1255,8 +1259,28 @@ async function moveFolderDraftForCurrentType() {
 
 async function convertCurrentMode() {
   const nextMode = state.appMode === "article" ? "cards" : "article";
-  if (await setAppMode(nextMode)) return;
+  const moved = await setAppMode(nextMode);
+  showCurrentProjectInHistory();
+  if (moved) return;
   els.status.textContent = nextMode === "article" ? "已转为长文" : "已转为图文卡片，并自动分页排版";
+}
+
+/** 左侧列表按类型筛选时，跟着切到当前稿件的类型，并把选中的那篇滚到可见处。 */
+function showCurrentProjectInHistory() {
+  if (state.historyFilter !== "all") state.historyFilter = state.appMode;
+  updateProjectHistory();
+  els.projectHistory?.querySelector(".history-item.active")?.scrollIntoView({ block: "nearest" });
+}
+
+/** 顶部“图文卡片 / 长文”：打开该类型最近改过的原稿，没有就打开对应说明书；转换类型交给“转图文 / 转长文”。 */
+async function openLatestProjectOfType(mode) {
+  const type = mode === "article" ? "article" : "cards";
+  if (state.appMode === type) return;
+  const latest = state.projects
+    .filter((project) => projectType(project) === type)
+    .reduce((best, project) => (!best || (project.updatedAt || 0) > (best.updatedAt || 0) ? project : best), null);
+  await openProject(latest?.id || (type === "article" ? GUIDE_ARTICLE_PROJECT_ID : GUIDE_CARDS_PROJECT_ID));
+  showCurrentProjectInHistory();
 }
 
 function updateArticleControls() {
@@ -3770,7 +3794,7 @@ async function createNewProject() {
 // 网页里改动副本后会自动写回原文件；两边都改过时先问用户保留哪一边。
 const FOLDER_DRAFTS_STORAGE_KEY = "writeThenPublishFolderDrafts.v1";
 const FOLDER_DRAFT_WRITE_DELAY = 1200;
-const folderDraftSync = { running: null, again: false, generation: 0 };
+const folderDraftSync = { running: null, again: false, announceAgain: false, generation: 0 };
 const folderDraftWrites = { timers: new Map(), running: new Map(), notes: new Map() };
 // drafts/ 下按类型分两个文件夹，草稿文件是 "图文/<文件夹>/<草稿>.md"。
 const FOLDER_DRAFT_TYPE_DIRS = { cards: "图文", article: "长文" };
@@ -3931,13 +3955,17 @@ async function syncFolderDrafts({ announce = false } = {}) {
   if (!folderDraftsSupported()) return;
   if (folderDraftSync.running) {
     folderDraftSync.again = true;
+    // 自动同步还没跑完时点了“重新载入”，补跑的那次按手动处理。
+    folderDraftSync.announceAgain ||= announce;
     return folderDraftSync.running;
   }
   folderDraftSync.running = runFolderDraftSync(announce).finally(() => {
     folderDraftSync.running = null;
     if (folderDraftSync.again) {
+      const announceAgain = folderDraftSync.announceAgain;
       folderDraftSync.again = false;
-      void syncFolderDrafts({ announce });
+      folderDraftSync.announceAgain = false;
+      void syncFolderDrafts({ announce: announceAgain });
     }
   });
   return folderDraftSync.running;
@@ -3980,8 +4008,9 @@ async function runFolderDraftSync(announce) {
       movedRecords = true;
     }
     const record = records[file];
-    if (!file || (record && mtime <= record.mtime)) continue;
     const existing = record ? state.projects.find((project) => project.id === record.projectId) : null;
+    // 网页里删掉的副本：刷新网页或点“重新载入”时按文件重新载入一份，要彻底删掉得删 drafts/ 里的文件夹。
+    if (!file || (record && mtime <= record.mtime && existing)) continue;
     if (existing && !folderDraftUntouched(existing, record)) continue;
     if (!existing && state.projects.length >= MAX_PROJECTS) {
       full += 1;
@@ -4414,7 +4443,7 @@ const FIRST_RUN_ONBOARDING_STEPS = [
   {
     target: "#appModeSwitch",
     title: "选择发布形式",
-    body: "同一份内容可以在“图文卡片”和“长文”之间切换，不需要重新排版。",
+    body: "点“图文卡片”或“长文”打开该类型最近编辑的原稿；要把当前内容转成另一种形式，点“转图文 / 转长文”。",
   },
   {
     target: "#obsidianImportMenu",
@@ -6453,6 +6482,86 @@ async function inspectPortableFolder(files) {
   return options.length === 1 ? options[0].candidate : options;
 }
 
+function isMarkdownFile(file) {
+  return /\.(md|markdown)$/i.test(file?.name || "");
+}
+
+/** 和 server.py 的 split_front_matter 一致：只取 title，其余 front matter 丢掉。 */
+function splitMarkdownFrontMatter(text) {
+  const match = /^---[ \t]*\n([\s\S]*?)\n---[ \t]*(?:\n|$)/.exec(text);
+  if (!match) return { title: "", body: text };
+  let title = "";
+  for (const line of match[1].split("\n")) {
+    const [key, ...rest] = line.split(":");
+    if (key.trim().toLowerCase() !== "title" || !rest.length) continue;
+    title = rest.join(":").trim();
+    if (title.startsWith("\"")) {
+      try {
+        title = String(JSON.parse(title));
+      } catch {
+        title = title.replace(/^"+|"+$/g, "");
+      }
+    }
+    title = title.replace(/^'+|'+$/g, "");
+  }
+  return { title, body: text.slice(match[0].length).replace(/^\n+/, "") };
+}
+
+/** 单篇 Markdown，可连同文中引用的图片一起选；图片按路径或文件名对上 ![](…) / ![[…]]。 */
+async function inspectMarkdownImport(files) {
+  const selected = Array.from(files || []);
+  const markdownFiles = selected.filter(isMarkdownFile);
+  if (markdownFiles.length !== 1) throw new Error("请只选择一篇 .md 文件，可同时多选它引用的图片。");
+  const [file] = markdownFiles;
+  if (file.size > 5 * 1024 * 1024) throw new Error("Markdown 文件超过 5 MB，请检查是否选错文件。");
+  const text = (await file.text()).replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
+  const { title, body } = splitMarkdownFrontMatter(text);
+  const imageFiles = selected.filter(isImageFile);
+  const placeholders = Object.fromEntries(imageFiles.map((image, index) => [String(index), { name: image.name, sourcePath: image.name }]));
+  const converted = convertObsidianImageReferences(body, placeholders);
+  const used = new Set(Array.from(converted.content.matchAll(/\[\[image:(\d+)\]\]/g), (match) => match[1]));
+  return {
+    markdown: true,
+    body,
+    imageFiles: imageFiles.filter((_, index) => used.has(String(index))),
+    references: extractMarkdownImageReferences(body).length,
+    // 网络图片本来就不需要本地文件，不算“未对上”。
+    unresolved: converted.unresolved.filter((item) => !/：https?:\/\//i.test(item)),
+    // 没写 front matter 标题时留空，和新建稿一样用正文第一行当标题。
+    source: { title: title.slice(0, 200) },
+    displayTitle: title || projectTitleFromData({ content: body }) || file.name,
+  };
+}
+
+async function importMarkdownProject({ body, imageFiles, source }) {
+  if (activeStorageScope !== "guest" && state.projects.length >= MAX_PROJECTS) {
+    throw new Error(`这台设备已有 ${MAX_PROJECTS} 篇稿件，请先备份并整理旧稿，再导入。`);
+  }
+  const images = {};
+  for (const [index, file] of imageFiles.entries()) {
+    images[createImportedImageId(index)] = {
+      src: await readFileAsDataURL(file),
+      name: file.name || "图片",
+      sourcePath: file.name || "图片",
+      vaultPath: null,
+      crop: null,
+      layout: defaultNewImageLayout(),
+    };
+  }
+  const content = convertObsidianImageReferences(body, images).content;
+  saveState();
+  const imported = createProject({ ...blankFormState(), appMode: state.appMode, title: source.title, content, images });
+  state.projects = [imported, ...state.projects.filter((item) => !isBuiltInProject(item))].slice(0, MAX_PROJECTS);
+  state.currentProjectId = imported.id;
+  applyForm(imported.data);
+  syncGuideReadOnlyMode();
+  resetTextHistory();
+  saveProjectStore();
+  updateProjectHistory();
+  await render();
+  els.status.textContent = `已导入 Markdown：${imported.title}`;
+}
+
 function recordImportedMigrationZip(loaded, fileName, userId) {
   if (!ACCOUNT_MAINTENANCE || !userId || cloudState.user?.id !== userId || cloudState.legacyProjectsStatus !== "ready") return 0;
   const projects = new Map(cloudState.legacyProjects.map((project) => [project.id, project]));
@@ -6488,7 +6597,7 @@ function openPortableImportModal() {
   els.portableImportPreview.hidden = true;
   els.portableImportConfirm.disabled = true;
   els.portableImportWarning.textContent = "导入后会新增到原稿列表，不会覆盖当前稿。";
-  setPortableImportStatus("选择可编辑原稿 ZIP 或迁移 ZIP；多篇稿件可在包内选择。");
+  setPortableImportStatus("选择可编辑原稿 ZIP、迁移 ZIP 或一篇 Markdown；Markdown 可同时多选它引用的图片。");
   els.portableImportModal.classList.remove("hidden");
   setDialogBackgroundInert(true);
   requestAnimationFrame(() => els.portableImportZip.focus());
@@ -6511,6 +6620,15 @@ function selectPortableImportOption(index) {
   const option = portableImportOptions[index];
   if (!option) return;
   portableImportCandidate = option.candidate;
+  if (option.candidate.markdown) {
+    const { references, imageFiles, unresolved } = option.candidate;
+    els.portableImportName.textContent = option.candidate.displayTitle;
+    els.portableImportDetails.textContent = `Markdown 正文 ✓ · 引用图片 ${references} · 已对上 ${imageFiles.length}`
+      + (unresolved.length ? ` · ${unresolved.length} 张保留原引用（${unresolved.slice(0, 3).join("、")}）` : "");
+    els.portableImportPreview.hidden = false;
+    els.portableImportConfirm.disabled = false;
+    return;
+  }
   const images = Object.values(option.candidate.source.data.images);
   const gifs = Array.from(option.candidate.listed.values()).filter((item) => item.type === "image/gif" || /\.gif$/i.test(item.path)).length;
   const videos = images.filter((image) => image.kind === "live").length;
@@ -6581,7 +6699,11 @@ async function handlePortableImportDrop(event) {
     await previewPortableImport(() => inspectPortableZip(files[0]), files[0].name, true);
     return;
   }
-  setPortableImportStatus("请拖入一个原稿 ZIP 或迁移 ZIP。", true);
+  if (files.some(isMarkdownFile)) {
+    await previewPortableImport(() => inspectMarkdownImport(files), files.find(isMarkdownFile).name);
+    return;
+  }
+  setPortableImportStatus("请拖入一个原稿 ZIP、迁移 ZIP 或一篇 Markdown 文件。", true);
 }
 
 async function confirmPortableImport() {
@@ -6590,7 +6712,8 @@ async function confirmPortableImport() {
   els.portableImportConfirm.disabled = true;
   setPortableImportStatus("正在导入原稿，请不要关闭页面…");
   try {
-    await importPortableProject(portableImportCandidate);
+    if (portableImportCandidate.markdown) await importMarkdownProject(portableImportCandidate);
+    else await importPortableProject(portableImportCandidate);
     portableImportApplying = false;
     closePortableImportModal();
   } catch (error) {
@@ -10381,6 +10504,152 @@ async function copyArticleToWechat() {
     const serialized = serializeArticleForWechat();
     await writeRichClipboard(serialized.html, serialized.text);
     els.status.textContent = "已复制公众号富文本，可直接粘贴到公众号编辑器";
+  } catch (error) {
+    els.status.textContent = error?.message || "复制失败，请允许浏览器访问剪贴板。";
+  }
+}
+
+const FEISHU_THEMED_TEXT = "h1, h2, h3, strong, th";
+let opaqueColorContext = null;
+
+// 主题色里有 color-mix() 和半透明底色，飞书不认，先叠到白底上换成实色；全透明返回空串。
+function opaqueCssColor(value) {
+  opaqueColorContext ||= document.createElement("canvas").getContext("2d", { willReadFrequently: true });
+  const context = opaqueColorContext;
+  context.clearRect(0, 0, 1, 1);
+  context.fillStyle = "#000";
+  context.fillStyle = value;
+  context.fillRect(0, 0, 1, 1);
+  const [r, g, b, a] = context.getImageData(0, 0, 1, 1).data;
+  if (!a) return "";
+  const blend = (channel) => Math.round((channel * a + 255 * (255 - a)) / 255);
+  return `rgb(${blend(r)}, ${blend(g)}, ${blend(b)})`;
+}
+
+// 飞书文档的文字色和底色只能从固定色板里选，色板外的颜色粘贴时直接丢掉（值取自飞书复制出的 HTML）。
+const FEISHU_PALETTE = [
+  { text: "rgb(216,57,49)", light: "rgb(251,191,188)", dark: "rgb(247,105,100)" },
+  { text: "rgb(222,120,2)", light: "rgb(254,212,164)", dark: "rgb(255,165,61)" },
+  { text: "rgb(220,155,4)", light: "rgba(255,246,122,0.8)", dark: "rgb(255,233,40)" },
+  { text: "rgb(46,161,33)", light: "rgba(183,237,177,0.8)", dark: "rgb(98,210,86)" },
+  { text: "rgb(36,91,219)", light: "rgba(186,206,253,0.7)", dark: "rgba(78,131,253,0.55)" },
+  { text: "rgb(100,37,208)", light: "rgba(205,178,250,0.7)", dark: "rgba(147,90,246,0.55)" },
+];
+const FEISHU_GRAY = { text: "rgb(100,106,115)", light: "rgba(222,224,227,0.8)", dark: "rgb(187,191,196)" };
+
+function rgbToHsl(rgb) {
+  const [r, g, b] = (String(rgb).match(/\d+/g) || []).slice(0, 3).map((channel) => Number(channel) / 255);
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  const delta = max - min;
+  if (!delta) return { h: 0, s: 0, l };
+  const s = delta / (1 - Math.abs(2 * l - 1));
+  const h = max === r ? ((g - b) / delta + 6) % 6 : max === g ? (b - r) / delta + 2 : (r - g) / delta + 4;
+  return { h: h * 60, s, l };
+}
+
+FEISHU_PALETTE.forEach((entry) => (entry.hue = rgbToHsl(entry.text).h));
+
+/** 把任意颜色换成飞书色板里色相最近的一格；正文色（深而不艳）和白底返回空串，表示不写颜色。 */
+function feishuPaletteColor(rgb, role) {
+  if (!rgb) return "";
+  const { h, s, l } = rgbToHsl(rgb);
+  if (role === "text" && (l < 0.2 || l > 0.9 || (s < 0.35 && l < 0.35))) return "";
+  if (role === "background" && l > 0.97) return "";
+  const hueDistance = (entry) => Math.min(Math.abs(entry.hue - h), 360 - Math.abs(entry.hue - h));
+  const entry = s < 0.2 ? FEISHU_GRAY : FEISHU_PALETTE.reduce((best, item) => (hueDistance(item) < hueDistance(best) ? item : best));
+  if (role === "text") return entry.text;
+  return l > 0.75 ? entry.light : entry.dark;
+}
+
+/**
+ * 飞书文档按语义标签识别块（标题、列表、引用、代码块、表格、图片），
+ * 内联样式只认颜色和背景色，字体、字号、间距一律丢掉。
+ * 所以这里不复制整套计算样式，而是把长文 HTML 收拾成干净的语义结构，
+ * 只把主题给标题、加粗、表头上的文字色和底色写成内联 span 带过去。
+ */
+function serializeArticleForFeishu() {
+  const form = readForm();
+  if (!form.content.trim()) throw new Error("长文内容为空，请先输入正文。");
+  // 按当前主题离屏渲染一份，读主题算出来的颜色；不依赖预览区是否已刷新。
+  const article = document.createElement("article");
+  article.className = `article-preview article-theme-${form.articleTheme} article-font-${form.articleFont} article-size-${form.articleSize}`;
+  article.style.setProperty("--article-accent", form.articleColor);
+  article.style.cssText += ";position:fixed;left:-10000px;top:0";
+  article.innerHTML = markdownToArticleHtml(form.content, form.images);
+  document.body.append(article);
+  const root = article.cloneNode(true);
+  const themed = Array.from(root.querySelectorAll(FEISHU_THEMED_TEXT));
+  article.querySelectorAll(FEISHU_THEMED_TEXT).forEach((source, index) => {
+    const computed = window.getComputedStyle(source);
+    // 先原样写下主题算出来的颜色，下面统一换成飞书色板；正文黑和白底会在那一步被去掉。
+    const styles = [`color:${opaqueCssColor(computed.color)}`];
+    const background = opaqueCssColor(computed.backgroundColor);
+    if (background) styles.push(`background-color:${background}`);
+    const span = document.createElement("span");
+    span.setAttribute("style", styles.join(";"));
+    const target = themed[index];
+    // 加粗要写成 span > strong：颜色挂在最外层的行内元素上，飞书才认；标题和表头是块，只能包在里面。
+    if (target.tagName === "STRONG") {
+      target.replaceWith(span);
+      span.append(target);
+    } else {
+      span.append(...target.childNodes);
+      target.append(span);
+    }
+  });
+  article.remove();
+
+  // 代码块：去掉窗口装饰头，高亮 span 摊平成纯文本，保留原始换行，飞书才会识别成代码块。
+  root.querySelectorAll("pre").forEach((pre) => {
+    const code = document.createElement("code");
+    code.textContent = pre.querySelector("code")?.textContent || "";
+    const clean = document.createElement("pre");
+    clean.append(code);
+    pre.replaceWith(clean);
+  });
+
+  // 内联样式只留颜色和背景色并换成飞书色板，下划线换成 <u>，字号等飞书不认的直接拆掉外层 span。
+  root.querySelectorAll("span[style]").forEach((span) => {
+    if (span.style.textDecorationLine.includes("underline")) {
+      const underline = document.createElement("u");
+      underline.append(...span.childNodes);
+      span.append(underline);
+    }
+    const color = feishuPaletteColor(span.style.color && opaqueCssColor(span.style.color), "text");
+    const background = feishuPaletteColor(span.style.backgroundColor && opaqueCssColor(span.style.backgroundColor), "background");
+    const styles = [];
+    if (color) styles.push(`color:${color}`);
+    if (background) styles.push(`background-color:${background}`);
+    if (styles.length) span.setAttribute("style", styles.join(";"));
+    else span.replaceWith(...span.childNodes);
+  });
+
+  root.querySelectorAll("a").forEach((link) => link.removeAttribute("style"));
+  root.querySelectorAll(".article-table-wrap").forEach((wrap) => wrap.replaceWith(...wrap.childNodes));
+  root.querySelectorAll("figure").forEach((figure) => {
+    const image = figure.querySelector("img");
+    if (!image) {
+      figure.remove();
+      return;
+    }
+    const paragraph = document.createElement("p");
+    paragraph.append(image);
+    figure.replaceWith(paragraph);
+  });
+  root.querySelectorAll("[class]").forEach((node) => node.removeAttribute("class"));
+
+  // Safari 写剪贴板时会把每个顶层块补上 color:rgb(0,0,0) 等整套样式，飞书据此把块里的文字色和底色清掉
+  // （只有表格单元格例外）。包一层 div，补样式只落在这层容器上，段落、标题、列表本身保持干净。
+  return { html: `<div>${root.innerHTML}</div>`, text: plainTextForCopy(form.content) };
+}
+
+async function copyArticleToFeishu() {
+  try {
+    const serialized = serializeArticleForFeishu();
+    await writeRichClipboard(serialized.html, serialized.text);
+    els.status.textContent = "已复制飞书格式，可直接粘贴到飞书文档";
   } catch (error) {
     els.status.textContent = error?.message || "复制失败，请允许浏览器访问剪贴板。";
   }
@@ -14259,7 +14528,7 @@ function bindEvents() {
   });
 
   els.modeButtons.forEach((button) => {
-    button.addEventListener("click", (event) => setAppMode(event.currentTarget.dataset.appMode));
+    button.addEventListener("click", (event) => openLatestProjectOfType(event.currentTarget.dataset.appMode));
   });
 
   els.articleThemeButtons.forEach((button) => {
@@ -14599,6 +14868,12 @@ function bindEvents() {
     event.target.value = "";
     if (file) void previewPortableImport(() => inspectPortableZip(file), file.name, true);
   });
+  els.portableImportMarkdown?.addEventListener("click", () => els.portableImportMarkdownInput.click());
+  els.portableImportMarkdownInput?.addEventListener("change", (event) => {
+    const files = Array.from(event.target.files || []);
+    event.target.value = "";
+    if (files.length) void previewPortableImport(() => inspectMarkdownImport(files), files.find(isMarkdownFile)?.name || "Markdown");
+  });
   els.portableImportFolder.hidden = true;
   els.portableImportFolder?.addEventListener("click", () => els.portableImportFolderInput.click());
   els.portableImportFolderInput?.addEventListener("change", (event) => {
@@ -14837,6 +15112,7 @@ function bindEvents() {
     void downloadPdf();
   });
   els.copyWechat.addEventListener("click", copyArticleToWechat);
+  els.copyFeishu.addEventListener("click", copyArticleToFeishu);
   els.syncWechat.addEventListener("click", openWechatModal);
 }
 

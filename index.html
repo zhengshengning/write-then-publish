@@ -55,8 +55,8 @@
           </div>
           <small class="history-note">自动保存在本浏览器，点击切换</small>
           <div class="history-filter" aria-label="原稿列表筛选">
-            <button type="button" class="active" data-history-filter="all">全部</button>
-            <button type="button" data-history-filter="cards">图文</button>
+            <button type="button" data-history-filter="all">全部</button>
+            <button type="button" class="active" data-history-filter="cards">图文</button>
             <button type="button" data-history-filter="article">长文</button>
           </div>
           <div id="projectHistory" class="history-list"></div>
@@ -454,6 +454,10 @@
               <i data-lucide="copy"></i>
               复制公众号格式
             </button>
+            <button id="copyFeishuBtn" class="secondary-button" type="button" hidden>
+              <i data-lucide="copy"></i>
+              复制到飞书
+            </button>
             <button id="syncWechatBtn" class="primary-button" type="button" hidden>
               <i data-lucide="send"></i>
               同步草稿箱
@@ -833,11 +837,15 @@
         <div class="portable-import-body">
           <div id="portableImportDropzone" class="portable-import-dropzone">
             <i data-lucide="folder-open"></i>
-            <strong>选择之前下载的 ZIP，即可继续编辑</strong>
+            <strong>选择之前下载的 ZIP，或一篇 Markdown 文件，即可继续编辑</strong>
             <button id="portableImportFolderBtn" type="button" hidden>旧版文件夹</button>
-            <button id="portableImportZipBtn" class="primary-button" type="button">选择 ZIP 原稿</button>
+            <div class="portable-import-buttons">
+              <button id="portableImportZipBtn" class="primary-button" type="button">选择 ZIP 原稿</button>
+              <button id="portableImportMarkdownBtn" class="primary-button" type="button" title="可同时多选文中引用的图片">选择 Markdown</button>
+            </div>
           </div>
           <input id="portableImportZipInput" type="file" accept=".zip,application/zip" hidden />
+          <input id="portableImportMarkdownInput" type="file" accept=".md,.markdown,text/markdown,image/*" multiple hidden />
           <input id="portableImportFolderInput" type="file" webkitdirectory multiple hidden />
           <p id="portableImportStatus" class="portable-import-status" role="status">请选择一篇原稿。</p>
           <label id="portableImportChoice" class="portable-import-choice" hidden>选择要继续编辑的原稿
@@ -1454,6 +1462,6 @@
       }
     </script>
     <script src="src/default-avatar.js?v=20261030-luffy"></script>
-    <script src="src/app.js?v=20261031-pdf-header"></script>
+    <script src="src/app.js?v=20261031-mode-history-sync"></script>
   </body>
 </html>
