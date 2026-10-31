@@ -1107,27 +1107,53 @@ def project_draft_markdown(directory: Path) -> Path | None:
     return candidates[0] if len(candidates) == 1 else None
 
 
-def project_draft_dir(name: str) -> Path:
+# 图文和长文各放一个子文件夹：drafts/图文/<标题>/、drafts/长文/<标题>/。
+PROJECT_DRAFT_TYPE_DIRS = {"cards": "图文", "article": "长文"}
+PROJECT_DRAFT_DIR_TYPES = {name: kind for kind, name in PROJECT_DRAFT_TYPE_DIRS.items()}
+
+
+def project_draft_type_dir(kind: str, create: bool = False) -> Path:
+    if kind not in PROJECT_DRAFT_TYPE_DIRS:
+        raise ValueError("草稿类型无效。")
+    directory = PROJECT_DRAFTS_DIR / PROJECT_DRAFT_TYPE_DIRS[kind]
+    if PROJECT_DRAFTS_DIR.is_symlink() or directory.is_symlink():
+        raise ValueError("drafts/ 和类型文件夹不能是符号链接。")
+    if create:
+        directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
+def project_draft_dir(kind: str, name: str) -> Path:
     if not name or name != Path(name).name or name.startswith(".") or name in {"assets", ".."}:
         raise ValueError("草稿文件夹名无效。")
-    directory = PROJECT_DRAFTS_DIR / name
-    if directory.is_symlink() or not directory.is_dir() or directory.resolve().parent != PROJECT_DRAFTS_DIR.resolve():
+    parent = project_draft_type_dir(kind)
+    directory = parent / name
+    if directory.is_symlink() or not directory.is_dir() or directory.resolve().parent != parent.resolve():
         raise FileNotFoundError(name)
     return directory
 
 
 def project_draft_path(file: str) -> Path:
-    """Only an existing drafts/<folder>/<draft>.md can be written; nothing outside the draft folder."""
+    """Only an existing drafts/<图文|长文>/<folder>/<draft>.md can be written; nothing outside the draft folder."""
     parts = str(file or "").split("/")
-    if len(parts) != 2 or not parts[1].lower().endswith(".md") or parts[1] != Path(parts[1]).name or parts[1].startswith("."):
+    # 网页里可能还关联着旧的 drafts/<文件夹>/<草稿>.md：按“已不存在”处理，网页会在对应类型下重新建一个。
+    if len(parts) == 2 and parts[0] not in PROJECT_DRAFT_DIR_TYPES and parts[1].lower().endswith(".md"):
+        raise FileNotFoundError(file)
+    if len(parts) != 3 or parts[0] not in PROJECT_DRAFT_DIR_TYPES:
         raise ValueError("草稿文件名无效。")
-    if parts[1].lower() == "readme.md":
+    if not parts[2].lower().endswith(".md") or parts[2] != Path(parts[2]).name or parts[2].startswith("."):
+        raise ValueError("草稿文件名无效。")
+    if parts[2].lower() == "readme.md":
         raise ValueError("说明文件不能作为草稿写入。")
-    directory = project_draft_dir(parts[0])
-    path = directory / parts[1]
+    directory = project_draft_dir(PROJECT_DRAFT_DIR_TYPES[parts[0]], parts[1])
+    path = directory / parts[2]
     if path.is_symlink() or not path.is_file():
         raise FileNotFoundError(file)
     return path
+
+
+def project_draft_file(path: Path) -> str:
+    return f"{path.parent.parent.name}/{path.parent.name}/{path.name}"
 
 
 MAX_PROJECT_DRAFT_ASSET_BYTES = 350 * 1024 * 1024
@@ -1193,20 +1219,29 @@ def project_draft_file_name(title: str) -> str:
     return "未命名原稿" if stem.lower() == "readme" else stem
 
 
+def new_project_draft_dir(parent: Path, stem: str, make: Any) -> Path:
+    """Run make(directory) on the first free <stem>, <stem>-2, … under parent; never reuses a folder."""
+    for index in range(1, 1000):
+        directory = parent / (stem if index == 1 else f"{stem}-{index}")
+        if directory.exists() or directory.is_symlink():
+            continue
+        try:
+            make(directory)
+        except FileExistsError:
+            continue
+        return directory
+    raise ValueError("同名草稿过多，请换个标题。")
+
+
 def create_project_draft(payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
-    """Add a web draft as a new drafts/<标题>/<标题>.md folder; never reuses an existing folder."""
-    if PROJECT_DRAFTS_DIR.is_symlink():
-        raise ValueError("drafts/ 不能是符号链接。")
-    PROJECT_DRAFTS_DIR.mkdir(exist_ok=True)
+    """Add a web draft as a new drafts/<图文|长文>/<标题>/<标题>.md folder."""
+    parent = project_draft_type_dir(str(payload.get("type", "cards")), create=True)
     title = str(payload.get("title", "")).strip().replace("\n", " ")
     body = project_draft_body(payload)
     stem = project_draft_file_name(title or str(payload.get("fallbackName", "")))
-    for index in range(1, 1000):
-        directory = PROJECT_DRAFTS_DIR / (stem if index == 1 else f"{stem}-{index}")
-        try:
-            directory.mkdir()
-        except FileExistsError:
-            continue
+
+    def make(directory: Path) -> None:
+        directory.mkdir()
         path = directory / f"{directory.name}.md"
         try:
             path.write_text(project_draft_header([], title, directory.name, False) + body, encoding="utf-8")
@@ -1214,8 +1249,35 @@ def create_project_draft(payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
             shutil.rmtree(directory, ignore_errors=True)
             raise
         os.chmod(path, 0o644)
-        return 200, {"ok": True, "file": f"{directory.name}/{path.name}", "mtime": int(path.stat().st_mtime * 1000)}
-    raise ValueError("同名草稿过多，请换个标题。")
+
+    directory = new_project_draft_dir(parent, stem, make)
+    path = directory / f"{directory.name}.md"
+    return 200, {"ok": True, "file": project_draft_file(path), "mtime": int(path.stat().st_mtime * 1000)}
+
+
+def move_project_draft(payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+    """转图文 / 转长文：把整个草稿文件夹（含 assets/）移到另一类型下，原位置不再保留。"""
+    try:
+        source = project_draft_path(str(payload.get("file", "")))
+    except FileNotFoundError:
+        return 404, {"ok": False, "missing": True, "error": "drafts/ 里已经没有这个草稿。"}
+    kind = str(payload.get("type", ""))
+    parent = project_draft_type_dir(kind, create=True)
+    if source.parent.parent.resolve() == parent.resolve():
+        raise ValueError("草稿已经在这个类型的文件夹里。")
+
+    def make(directory: Path) -> None:
+        # 同在 drafts/ 下，直接改名，不复制文件。
+        os.rename(source.parent, directory)
+
+    directory = new_project_draft_dir(parent, source.parent.name, make)
+    path = directory / source.name
+    # 文件夹因重名加了 -2 时，<文件夹名>.md 也跟着改名，保持一一对应。
+    if source.stem == source.parent.name and directory.name != source.parent.name:
+        renamed = directory / f"{directory.name}.md"
+        path.rename(renamed)
+        path = renamed
+    return 200, {"ok": True, "file": project_draft_file(path), "mtime": int(path.stat().st_mtime * 1000)}
 
 
 def save_project_draft(payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
@@ -1244,31 +1306,36 @@ def save_project_draft(payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
 
 
 def list_project_drafts() -> dict[str, Any]:
-    """List drafts/<folder>/<draft>.md for the web app; one folder per draft, symlinks are skipped."""
+    """List drafts/<图文|长文>/<folder>/<draft>.md for the web app; one folder per draft, symlinks are skipped."""
     drafts: list[dict[str, Any]] = []
-    if not PROJECT_DRAFTS_DIR.is_dir():
-        return {"ok": True, "drafts": drafts}
-    for directory in sorted(PROJECT_DRAFTS_DIR.iterdir()):
-        if len(drafts) >= MAX_PROJECT_DRAFTS:
-            break
+    for kind in PROJECT_DRAFT_TYPE_DIRS:
         try:
-            project_draft_dir(directory.name)
-            path = project_draft_markdown(directory)
-            if not path:
-                continue
-            stat = path.stat()
-            if stat.st_size > MAX_PROJECT_DRAFT_BYTES:
-                continue
-            text = path.read_text(encoding="utf-8-sig")
-        except (OSError, ValueError, UnicodeDecodeError):
+            parent = project_draft_type_dir(kind)
+            directories = sorted(parent.iterdir()) if parent.is_dir() else []
+        except (OSError, ValueError):
             continue
-        meta, body = split_front_matter(text)
-        drafts.append({
-            "file": f"{directory.name}/{path.name}",
-            "title": meta.get("title") or directory.name,
-            "mtime": int(stat.st_mtime * 1000),
-            "content": body.lstrip("\r\n"),
-        })
+        for directory in directories:
+            if len(drafts) >= MAX_PROJECT_DRAFTS:
+                break
+            try:
+                project_draft_dir(kind, directory.name)
+                path = project_draft_markdown(directory)
+                if not path:
+                    continue
+                stat = path.stat()
+                if stat.st_size > MAX_PROJECT_DRAFT_BYTES:
+                    continue
+                text = path.read_text(encoding="utf-8-sig")
+            except (OSError, ValueError, UnicodeDecodeError):
+                continue
+            meta, body = split_front_matter(text)
+            drafts.append({
+                "file": project_draft_file(path),
+                "type": kind,
+                "title": meta.get("title") or directory.name,
+                "mtime": int(stat.st_mtime * 1000),
+                "content": body.lstrip("\r\n"),
+            })
     return {"ok": True, "drafts": drafts}
 
 
@@ -1406,6 +1473,7 @@ main{{max-width:560px;margin:0 auto;padding:28px 20px 48px}}.card{{background:#f
             "/api/live-photo/batch-reveal",
             "/api/live-photo/batch-airdrop",
             "/api/drafts/save",
+            "/api/drafts/move",
             "/api/drafts/asset",
         }:
             self.send_json(404, {"ok": False, "error": "接口不存在。"})
@@ -1482,8 +1550,8 @@ main{{max-width:560px;margin:0 auto;padding:28px 20px 48px}}.card{{background:#f
                     result = reveal_live_photo_batch(str(payload.get("batch_id", "")))
                 elif path == "/api/live-photo/batch-airdrop":
                     result = airdrop_live_photo_batch(str(payload.get("batch_id", "")))
-                elif path == "/api/drafts/save":
-                    status, result = save_project_draft(payload)
+                elif path in {"/api/drafts/save", "/api/drafts/move"}:
+                    status, result = (save_project_draft if path == "/api/drafts/save" else move_project_draft)(payload)
                     if status != 200:
                         self.send_json(status, result)
                         return

@@ -2829,25 +2829,104 @@ body.export-busy {
 }
 
 .article-preview code {
-  padding: 2px 5px;
+  padding: 2px 6px;
   border-radius: 4px;
-  color: #d92d20;
-  background: #f6f7f9;
-  font-family: "SFMono-Regular", Consolas, monospace;
+  color: color-mix(in srgb, var(--article-accent) 82%, #111827);
+  background: color-mix(in srgb, var(--article-accent) 9%, white);
+  font-family: "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 0.88em;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
 }
 
+/* 代码块比正文小一号，等宽字符在手机宽度里能放下一行 50 字符左右。
+   配色取 GitHub Dark；头部圆点和语言标签都是真实元素，复制到公众号后仍在。 */
 .article-preview pre {
-  overflow: auto;
-  padding: 18px;
-  border-radius: 8px;
-  color: #dbeafe;
-  background: #0b1117;
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid #30363d;
+  border-radius: 10px;
+  color: #e6edf3;
+  background: #0d1117;
+  font-family: "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 0.76em;
+  line-height: 1.7;
+  letter-spacing: 0;
+  white-space: pre;
+}
+
+.article-preview .article-code-head {
+  display: block;
+  padding: 7px 14px;
+  border-bottom: 1px solid #21262d;
+  background: #161b22;
+  font-size: 0.82em;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.article-preview .article-code-dots span {
+  margin-right: 5px;
+  font-size: 0.95em;
+}
+
+.article-preview .article-code-dots span:nth-child(1) {
+  color: #ff5f56;
+}
+
+.article-preview .article-code-dots span:nth-child(2) {
+  color: #ffbd2e;
+}
+
+.article-preview .article-code-dots span:nth-child(3) {
+  color: #27c93f;
+}
+
+.article-preview .article-code-lang {
+  margin-left: 8px;
+  color: #8b949e;
+  font-weight: 600;
+  letter-spacing: 0.06em;
 }
 
 .article-preview pre code {
-  padding: 0;
+  display: block;
+  overflow-x: auto;
+  padding: 12px 16px 14px;
+  border-radius: 0;
   color: inherit;
   background: transparent;
+  font-size: inherit;
+  white-space: inherit;
+  overflow-wrap: normal;
+}
+
+.article-preview .code-comment {
+  color: #8b949e;
+  font-style: italic;
+}
+
+.article-preview .code-keyword {
+  color: #ff7b72;
+}
+
+.article-preview .code-string {
+  color: #a5d6ff;
+}
+
+.article-preview .code-number,
+.article-preview .code-constant,
+.article-preview .code-property {
+  color: #79c0ff;
+}
+
+.article-preview .code-function {
+  color: #d2a8ff;
+}
+
+.article-preview .code-decorator,
+.article-preview .code-attr {
+  color: #ffa657;
 }
 
 .article-preview img {
@@ -2917,8 +2996,16 @@ body.export-busy {
 }
 
 .article-live-stage:hover .article-live-actions,
+.article-image-figure:hover .article-live-actions,
 .article-live-actions:focus-within {
   opacity: 1;
+}
+
+/* 普通图片的复制按钮贴着图片右下角，figure 收缩到图片宽度。 */
+.article-preview .article-image-figure {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
 }
 
 .article-live-action {

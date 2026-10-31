@@ -308,6 +308,7 @@ const els = {
   feedbackSubmit: $("#feedbackSubmitBtn"),
   downloadZip: $("#downloadZipBtn"),
   downloadArticle: $("#downloadArticleBtn"),
+  downloadPdf: $("#downloadPdfBtn"),
   downloadMenu: $("#downloadMenu"),
   copyWechat: $("#copyWechatBtn"),
   syncWechat: $("#syncWechatBtn"),
@@ -1234,15 +1235,27 @@ function updateAppMode() {
 
 async function setAppMode(mode) {
   const nextMode = mode === "article" ? "article" : "cards";
-  if (state.appMode === nextMode) return;
+  if (state.appMode === nextMode) return false;
   state.appMode = nextMode;
   updateAppMode();
   await render();
+  return moveFolderDraftForCurrentType();
+}
+
+/** 转图文 / 转长文后，已关联 drafts/ 的稿件把草稿文件夹移到对应类型下。有提示时返回 true。 */
+async function moveFolderDraftForCurrentType() {
+  const project = state.projects.find((item) => item.id === state.currentProjectId);
+  const result = await moveFolderDraftToProjectType(project);
+  if (!result) return false;
+  els.status.textContent = result.error
+    ? `草稿文件夹未移动：${result.error}`
+    : `已把 drafts/${result.from} 移到 drafts/${result.file}`;
+  return true;
 }
 
 async function convertCurrentMode() {
   const nextMode = state.appMode === "article" ? "cards" : "article";
-  await setAppMode(nextMode);
+  if (await setAppMode(nextMode)) return;
   els.status.textContent = nextMode === "article" ? "已转为长文" : "已转为图文卡片，并自动分页排版";
 }
 
@@ -3759,6 +3772,12 @@ const FOLDER_DRAFTS_STORAGE_KEY = "writeThenPublishFolderDrafts.v1";
 const FOLDER_DRAFT_WRITE_DELAY = 1200;
 const folderDraftSync = { running: null, again: false, generation: 0 };
 const folderDraftWrites = { timers: new Map(), running: new Map(), notes: new Map() };
+// drafts/ 下按类型分两个文件夹，草稿文件是 "图文/<文件夹>/<草稿>.md"。
+const FOLDER_DRAFT_TYPE_DIRS = { cards: "图文", article: "长文" };
+
+function folderDraftType(file) {
+  return String(file || "").split("/")[0] === FOLDER_DRAFT_TYPE_DIRS.article ? "article" : "cards";
+}
 
 function folderDraftsSupported() {
   return window.location.protocol.startsWith("http")
@@ -3812,7 +3831,7 @@ function folderDraftAssetPaths(reference) {
   return parts.length === 1 ? [relative, `assets/${relative}`] : [relative];
 }
 
-/** 草稿文件是 "文件夹/草稿.md"；正文里的图片路径相对这个文件夹。 */
+/** 草稿文件是 "类型/文件夹/草稿.md"；正文里的图片路径相对这个文件夹。 */
 function folderDraftUrl(file, relative) {
   const folder = String(file || "").split("/").slice(0, -1);
   return `drafts/${[...folder, ...relative.split("/")].map(encodeURIComponent).join("/")}`;
@@ -3951,8 +3970,10 @@ async function runFolderDraftSync(announce) {
   for (const draft of drafts) {
     const file = String(draft?.file || "");
     const mtime = Number(draft?.mtime) || 0;
-    // 草稿从 drafts/x.md 挪进 drafts/x/x.md 后，沿用原来的副本，不重复载入。
-    const legacyKey = [file.split("/").pop(), `${file.split("/")[0]}.md`].find((key) => key !== file && records[key]);
+    const type = draft?.type === "article" ? "article" : "cards";
+    // 草稿从 drafts/x.md、drafts/x/x.md 挪进 drafts/图文/x/x.md 后，沿用原来的副本，不重复载入。
+    const inner = file.split("/").slice(1).join("/");
+    const legacyKey = [inner, inner.split("/").pop(), `${inner.split("/")[0]}.md`].find((key) => key && key !== file && records[key]);
     if (!records[file] && legacyKey) {
       records[file] = records[legacyKey];
       delete records[legacyKey];
@@ -3981,7 +4002,7 @@ async function runFolderDraftSync(announce) {
       for (const [id, image] of Object.entries(project.data.images || {})) {
         if (image?.kind === "live" && !keptVideos.has(String(image.videoKey || id))) void cleanUpDeletedImageAsset(id, image);
       }
-      project.data = { ...project.data, title, content, images };
+      project.data = { ...project.data, appMode: type, title, content, images };
       project.title = projectTitleFromData(project.data);
       project.updatedAt = Date.now();
       refreshed += 1;
@@ -3992,7 +4013,7 @@ async function runFolderDraftSync(announce) {
         refreshedCurrent = true;
       }
     } else {
-      const created = createProject({ ...blankFormState(), title, content, images });
+      const created = createProject({ ...blankFormState(), appMode: type, title, content, images });
       state.projects = [created, ...state.projects];
       records[file] = { projectId: created.id };
       added += 1;
@@ -4274,13 +4295,67 @@ function applyFolderDraftUploads(project, uploads) {
 }
 
 /**
- * 保存到项目：确认 drafts/ 里有这一篇。已关联的立即写回一次，
- * 没关联或文件已被删掉的新建一个 .md 并关联上。线上或本机服务不在时返回 null。
+ * 稿件类型和关联的草稿文件夹不一致时（转图文 / 转长文之后），把整个草稿文件夹移到对应类型下，
+ * 关联跟着改到新位置，原位置不再保留。
+ * 不需要移动时返回 null，否则返回 { file, from } 或 { error }。
+ */
+async function moveFolderDraftToProjectType(project) {
+  if (!folderDraftsSupported() || !project || isBuiltInProject(project)) return null;
+  const file = folderDraftFileForProject(project.id);
+  const type = projectType(project);
+  if (!file || folderDraftType(file) === type) return null;
+  // 先把还没写回的改动落盘，移过去的才是最新内容。
+  window.clearTimeout(folderDraftWrites.timers.get(project.id));
+  folderDraftWrites.timers.delete(project.id);
+  const outcome = await writeBackFolderDraft(project.id);
+  if (outcome === "missing") {
+    // 原文件夹已被删掉：解除关联，“保存到项目”时会在新类型下重新建一个。
+    const records = loadFolderDraftRecords();
+    delete records[file];
+    saveFolderDraftRecords(records);
+    updateProjectHistory();
+    return { error: `drafts/${file} 已不存在，可点“保存到项目”重新保存` };
+  }
+  if (outcome === "conflict") return { error: `drafts/${file} 两边都改过，请处理后再点“保存到项目”` };
+  if (outcome === "error") return { error: folderDraftWrites.notes.get(project.id) || "本机服务没有确认写入" };
+
+  let response;
+  let result;
+  try {
+    response = await fetch("api/drafts/move", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file, type }),
+    });
+    result = await response.json().catch(() => ({}));
+  } catch {
+    return { error: "没连上本机服务" };
+  }
+  if (!response.ok || !result.ok || !result.file) return { error: result.error || `HTTP ${response.status}` };
+
+  const records = loadFolderDraftRecords();
+  const record = records[file] || {};
+  delete records[file];
+  records[result.file] = {
+    projectId: project.id,
+    mtime: Number(result.mtime) || record.mtime || Date.now(),
+    fingerprint: record.fingerprint || folderDraftFingerprint(project.data.title, project.data.content),
+  };
+  saveFolderDraftRecords(records);
+  updateProjectHistory();
+  return { file: result.file, from: file };
+}
+
+/**
+ * 保存到项目：确认 drafts/<图文|长文>/ 里有这一篇。已关联的立即写回一次（类型变了先移到对应文件夹），
+ * 没关联或文件已被删掉的在当前类型下新建一个 .md 并关联上。线上或本机服务不在时返回 null。
  */
 async function ensureFolderDraftForProject(project) {
   if (!folderDraftsSupported() || !project || isBuiltInProject(project)) return null;
   window.clearTimeout(folderDraftWrites.timers.get(project.id));
   folderDraftWrites.timers.delete(project.id);
+  const moved = await moveFolderDraftToProjectType(project);
+  if (moved?.error && folderDraftFileForProject(project.id)) return { error: moved.error };
   const linked = folderDraftFileForProject(project.id);
   if (linked) {
     const outcome = await writeBackFolderDraft(project.id, { always: true });
@@ -4301,6 +4376,7 @@ async function ensureFolderDraftForProject(project) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         create: true,
+        type: projectType(project),
         title: project.data.title || "",
         fallbackName: project.title || "",
         content: markdown,
@@ -6235,7 +6311,7 @@ async function exportPortableProject(selectedProject = null) {
   els.status.textContent = `已交给浏览器下载 ${folderName}.zip；请检查下载目录并保留原稿。`;
 }
 
-/** 把当前稿件连同图片、GIF、实况视频存进项目的 drafts/<标题>/；只在本机 server.py 下可用。 */
+/** 把当前稿件连同图片、GIF、实况视频存进项目的 drafts/<图文|长文>/<标题>/；只在本机 server.py 下可用。 */
 async function saveProjectToFolderDrafts() {
   closeAccountMenu();
   if (els.downloadMenu) els.downloadMenu.open = false;
@@ -9694,6 +9770,7 @@ function markdownToArticleHtml(markdown, images = {}) {
   let list = [];
   let quote = [];
   let code = [];
+  let codeLang = "";
   let inCode = false;
 
   const renderSourceRange = (start, end) => renderArticleInlineTokens(
@@ -9718,7 +9795,7 @@ function markdownToArticleHtml(markdown, images = {}) {
   };
   const flushCode = () => {
     if (!code.length) return;
-    html.push(`<pre><code>${escapeHtml(code.join("\n"))}</code></pre>`);
+    html.push(renderArticleCodeBlock(code.join("\n"), codeLang));
     code = [];
   };
 
@@ -9742,6 +9819,7 @@ function markdownToArticleHtml(markdown, images = {}) {
         flushParagraph();
         flushList();
         inCode = true;
+        codeLang = trimmed.slice(3).trim().split(/\s+/)[0].toLowerCase();
       }
       continue;
     }
@@ -9822,6 +9900,141 @@ function markdownToArticleHtml(markdown, images = {}) {
   flushQuote();
   flushCode();
   return html.length ? html.join("") : '<p class="article-empty">在左侧输入 Markdown，右侧会生成长文预览。</p>';
+}
+
+const ARTICLE_CODE_QUOTED = String.raw`"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'`;
+const ARTICLE_CODE_C_COMMENT = String.raw`\/\/.*|\/\*[\s\S]*?\*\/`;
+const ARTICLE_CODE_C_KEYWORDS =
+  "auto break case catch chan char class const constexpr continue default defer delete do double else enum explicit " +
+  "extern final float fn for func go goto if impl import inline int interface let long loop map match mod mut namespace " +
+  "new override package private protected pub public range return select short signed sizeof static struct super switch " +
+  "template this throw trait try type typedef typename union unsigned use using var virtual void volatile where while " +
+  "__global__ __device__ __host__ __shared__";
+const ARTICLE_CODE_SPECS = {
+  python: {
+    label: "Python",
+    comment: String.raw`#.*`,
+    string: String.raw`(?:\b[rRbBfFuU]{1,2})?(?:"""[\s\S]*?"""|'''[\s\S]*?'''|${ARTICLE_CODE_QUOTED})`,
+    extra: String.raw`@[\w.]+`,
+    extraKind: "decorator",
+    keywords: "and as assert async await break case class continue def del elif else except finally for from global if " +
+      "import in is lambda match nonlocal not or pass raise return try while with yield",
+    constants: "True False None self cls",
+  },
+  javascript: {
+    label: "JavaScript",
+    comment: ARTICLE_CODE_C_COMMENT,
+    string: String.raw`${ARTICLE_CODE_QUOTED}|\x60(?:\\.|[^\x60\\])*\x60`,
+    keywords: "as async await break case catch class const continue default delete do else export extends finally for " +
+      "from function if import in instanceof interface let new of return static super switch this throw try type " +
+      "typeof var void while yield",
+    constants: "true false null undefined NaN",
+  },
+  c: {
+    label: "C/C++",
+    comment: ARTICLE_CODE_C_COMMENT,
+    string: ARTICLE_CODE_QUOTED,
+    extra: String.raw`^\s*#\s*\w+`,
+    extraKind: "decorator",
+    keywords: ARTICLE_CODE_C_KEYWORDS,
+    constants: "true false nil null nullptr NULL None Some Ok Err self",
+  },
+  shell: {
+    label: "Bash",
+    comment: String.raw`(?<![^\s])#.*`,
+    string: ARTICLE_CODE_QUOTED,
+    extra: String.raw`(?<![^\s])--?[A-Za-z][\w-]*|\$\{?\w+\}?`,
+    extraKind: "attr",
+    // 命令行里 Llama-3-8B、v0.11 这类名字中的数字不着色。
+    number: String.raw`(?<![^\s=:,(])\d+(?:\.\d+)?(?![\w.-])`,
+    keywords: "case do done elif else esac export fi for function if in local return then while",
+    constants: "true false",
+  },
+  json: { label: "JSON", comment: "(?!)", string: ARTICLE_CODE_QUOTED, keys: true, keywords: "", constants: "true false null" },
+  yaml: { label: "YAML", comment: String.raw`(?<![^\s])#.*`, string: ARTICLE_CODE_QUOTED, keywords: "", constants: "true false null yes no" },
+  sql: {
+    label: "SQL",
+    comment: String.raw`--.*`,
+    string: ARTICLE_CODE_QUOTED,
+    caseInsensitive: true,
+    keywords: "and as asc by case create delete desc distinct drop else end from group having in index insert into is " +
+      "join left limit not on or order outer right select set table then union update values when where with",
+    constants: "null true false",
+  },
+};
+const ARTICLE_CODE_ALIASES = {
+  py: "python", python3: "python", js: "javascript", jsx: "javascript", mjs: "javascript", ts: "javascript",
+  tsx: "javascript", typescript: "javascript", cpp: "c", "c++": "c", cc: "c", h: "c", hpp: "c", cuda: "c", cu: "c",
+  java: "c", go: "c", golang: "c", rust: "c", rs: "c", kotlin: "c", swift: "c", cs: "c", csharp: "c", sh: "shell",
+  bash: "shell", zsh: "shell", console: "shell", yml: "yaml", toml: "yaml", ini: "yaml",
+};
+const ARTICLE_CODE_LABELS = {
+  ts: "TypeScript", tsx: "TypeScript", typescript: "TypeScript", cpp: "C++", "c++": "C++", cc: "C++", hpp: "C++",
+  cuda: "CUDA", cu: "CUDA", java: "Java", go: "Go", golang: "Go", rust: "Rust", rs: "Rust", kotlin: "Kotlin",
+  swift: "Swift", cs: "C#", csharp: "C#", c: "C", h: "C", toml: "TOML", ini: "INI", zsh: "Zsh",
+};
+const articleCodePatterns = new Map();
+
+function articleCodePattern(name) {
+  if (!articleCodePatterns.has(name)) {
+    const spec = ARTICLE_CODE_SPECS[name];
+    const flags = spec.caseInsensitive ? "gim" : "gm";
+    articleCodePatterns.set(name, {
+      regex: new RegExp(
+        [
+          `(${spec.comment})`,
+          `(${spec.string})`,
+          `(${spec.number || String.raw`\b(?:0[xX][\da-fA-F]+|\d[\d_]*(?:\.\d+)?(?:[eE][+-]?\d+)?)\b`})`,
+          `(${spec.extra || "(?!)"})`,
+          String.raw`([A-Za-z_$][\w$]*)`,
+        ].join("|"),
+        flags,
+      ),
+      keywords: new Set(spec.keywords.split(" ").filter(Boolean)),
+      constants: new Set(spec.constants.split(" ").filter(Boolean).map((word) => (spec.caseInsensitive ? word.toLowerCase() : word))),
+    });
+  }
+  return articleCodePatterns.get(name);
+}
+
+// 轻量着色：只区分注释、字符串、数字、关键字、常量和函数名，够读代码用，不追求完整语法。
+function highlightArticleCode(source, lang) {
+  const name = ARTICLE_CODE_SPECS[lang] ? lang : ARTICLE_CODE_ALIASES[lang];
+  if (!name) return escapeHtml(source);
+  const spec = ARTICLE_CODE_SPECS[name];
+  const { regex, keywords, constants } = articleCodePattern(name);
+  let html = "";
+  let last = 0;
+  for (const match of source.matchAll(regex)) {
+    const [text, comment, string, number, extra, word] = match;
+    if (!text) continue;
+    html += escapeHtml(source.slice(last, match.index));
+    last = match.index + text.length;
+    let kind = "";
+    if (comment) kind = "comment";
+    else if (string) kind = spec.keys && /^\s*:/.test(source.slice(last)) ? "property" : "string";
+    else if (number) kind = "number";
+    else if (extra) kind = spec.extraKind;
+    else if (word) {
+      const key = spec.caseInsensitive ? word.toLowerCase() : word;
+      if (keywords.has(key)) kind = "keyword";
+      else if (constants.has(key)) kind = "constant";
+      else if (/^\s*\(/.test(source.slice(last, last + 8))) kind = "function";
+    }
+    html += kind ? `<span class="code-${kind}">${escapeHtml(text)}</span>` : escapeHtml(text);
+  }
+  return html + escapeHtml(source.slice(last));
+}
+
+function renderArticleCodeBlock(source, lang) {
+  const name = ARTICLE_CODE_SPECS[lang] ? lang : ARTICLE_CODE_ALIASES[lang];
+  const label = ARTICLE_CODE_LABELS[lang] || ARTICLE_CODE_SPECS[name]?.label || (["text", "txt", "plain", "plaintext"].includes(lang) ? "" : lang);
+  const code = source.replace(/\t/g, "    ");
+  // 头部用真实元素而不是 ::before，复制到公众号时才能带上内联样式。
+  const head =
+    `<span class="article-code-head"><span class="article-code-dots"><span>●</span><span>●</span><span>●</span></span>` +
+    `${label ? `<span class="article-code-lang">${escapeHtml(label)}</span>` : ""}</span>`;
+  return `<pre class="article-code">${head}<code>${highlightArticleCode(code, lang)}</code></pre>`;
 }
 
 function renderArticleInline(text) {
@@ -9920,12 +10133,21 @@ function hydrateArticleLiveMedia(article, images) {
     const badge = document.createElement("span");
     badge.className = "article-live-badge";
     badge.innerHTML = '<i data-lucide="aperture"></i>LIVE';
-    stage.append(video, badge, buildArticleLiveActions(imageId));
+    stage.append(video, badge, buildArticleLiveActions(imageId, stage.querySelector("img")));
+  });
+  article.querySelectorAll("figure:not([data-live-image-id])").forEach((figure) => {
+    const image = figure.querySelector("img");
+    if (!image) return;
+    figure.classList.add("article-image-figure");
+    const actions = document.createElement("div");
+    actions.className = "article-live-actions";
+    actions.append(buildArticleCopyImageButton(image));
+    figure.append(actions);
   });
 }
 
 /** 长文预览里每段实况自带「编辑」入口，否则改这段实况只能先切回图文卡片。 */
-function buildArticleLiveActions(imageId) {
+function buildArticleLiveActions(imageId, image) {
   const actions = document.createElement("div");
   actions.className = "article-live-actions";
 
@@ -9940,8 +10162,61 @@ function buildArticleLiveActions(imageId) {
     void openLivePhotoEditor(imageId);
   });
 
+  if (image) actions.append(buildArticleCopyImageButton(image));
   actions.append(edit);
   return actions;
+}
+
+/**
+ * 知乎粘贴富文本时丢掉 base64 图片，但能直接上传剪贴板里的图片，所以每张图单独给一个复制入口。
+ * 按钮放在 .article-live-actions 里，复制公众号格式和导出长图时会被一并去掉。
+ */
+function buildArticleCopyImageButton(image) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "article-live-action";
+  button.title = "复制图片";
+  button.setAttribute("aria-label", "复制图片");
+  button.innerHTML = '<i data-lucide="copy"></i>';
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    void copyArticleImage(image, button);
+  });
+  return button;
+}
+
+async function articleImagePngBlob(image) {
+  const src = image.currentSrc || image.src;
+  if (/^data:image\/png[;,]/i.test(src)) return (await fetch(src)).blob();
+  // 剪贴板只稳定支持 PNG，JPG/WebP/GIF 先画到画布上转一次。
+  if (!image.complete || !image.naturalWidth) await image.decode();
+  const canvas = document.createElement("canvas");
+  canvas.width = image.naturalWidth;
+  canvas.height = image.naturalHeight;
+  canvas.getContext("2d").drawImage(image, 0, 0);
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("图片转换失败。"))), "image/png");
+  });
+}
+
+async function copyArticleImage(image, button) {
+  if (!navigator.clipboard?.write || !window.ClipboardItem) {
+    els.status.textContent = "当前浏览器不支持复制图片，请右键图片选择“复制图片”。";
+    return;
+  }
+  try {
+    // 直接把 Promise 交给 ClipboardItem，Safari 才认这次点击的授权。
+    await navigator.clipboard.write([new window.ClipboardItem({ "image/png": articleImagePngBlob(image) })]);
+    els.status.textContent = "已复制图片，可粘贴到知乎等编辑器";
+    button.innerHTML = '<i data-lucide="check"></i>';
+    if (window.lucide) window.lucide.createIcons();
+    window.setTimeout(() => {
+      button.innerHTML = '<i data-lucide="copy"></i>';
+      if (window.lucide) window.lucide.createIcons();
+    }, 1500);
+  } catch (error) {
+    els.status.textContent = error?.message ? `复制图片失败：${error.message}` : "复制图片失败，请允许浏览器访问剪贴板。";
+  }
 }
 
 const WECHAT_STYLE_PROPERTIES = [
@@ -9970,6 +10245,7 @@ const WECHAT_STYLE_PROPERTIES = [
   "margin-top",
   "max-width",
   "overflow-wrap",
+  "overflow-x",
   "padding-bottom",
   "padding-left",
   "padding-right",
@@ -10007,6 +10283,22 @@ function copyComputedWechatStyles(source, target) {
   }
 }
 
+// 公众号编辑器会吞掉 pre 里的空格和换行，导出前把缩进换成不换行空格、换行换成 <br>。
+function preserveWechatCodeWhitespace(code) {
+  const walker = document.createTreeWalker(code, NodeFilter.SHOW_TEXT);
+  const textNodes = [];
+  while (walker.nextNode()) textNodes.push(walker.currentNode);
+  for (const node of textNodes) {
+    const lines = node.nodeValue.replace(/ /g, "\u00a0").split("\n");
+    const fragment = document.createDocumentFragment();
+    lines.forEach((line, index) => {
+      if (index) fragment.append(document.createElement("br"));
+      if (line) fragment.append(document.createTextNode(line));
+    });
+    node.replaceWith(fragment);
+  }
+}
+
 function serializeArticleForWechat() {
   let article = els.pages.querySelector(".article-preview");
   if (!article || state.appMode !== "article") {
@@ -10027,6 +10319,7 @@ function serializeArticleForWechat() {
     if (source.matches?.("video, .article-live-badge, .article-live-actions")) cloneNodes[index]?.remove();
   });
   clone.querySelectorAll("[data-live-image-id]").forEach((node) => node.removeAttribute("data-live-image-id"));
+  clone.querySelectorAll("pre code").forEach(preserveWechatCodeWhitespace);
 
   const section = document.createElement("section");
   const articleStyle = window.getComputedStyle(article);
@@ -12340,7 +12633,7 @@ function syncExportBusyState() {
   const handoffBusy = exportProgressState.handoff.active;
   const guideLocked = isBuiltInProjectId(state.currentProjectId);
   document.body.classList.toggle("export-busy", mainBusy || handoffBusy);
-  [els.downloadZip, els.downloadArticle, els.portableExport, els.saveToProject].filter(Boolean).forEach((button) => {
+  [els.downloadZip, els.downloadArticle, els.downloadPdf, els.portableExport, els.saveToProject].filter(Boolean).forEach((button) => {
     button.disabled = mainBusy || guideLocked;
     button.setAttribute("aria-disabled", button.disabled ? "true" : "false");
     button.title = guideLocked ? GUIDE_DOWNLOAD_MESSAGE : "";
@@ -13558,6 +13851,24 @@ function normalizeArticleExportColors(clonedDocument) {
   });
 }
 
+function renderArticleCanvas(article) {
+  return window.html2canvas(article, {
+    // 编辑/导出按钮只是预览里的操作入口，不该被印进长图。
+    ignoreElements: (node) => node.classList?.contains("article-live-actions"),
+    // 导出副本里将 color-mix() 计算出的 color(srgb …) 转成 rgba，
+    // 避免 html2canvas 1.x 在新版浏览器中报“不支持 color()”。
+    onclone: normalizeArticleExportColors,
+    backgroundColor: null,
+    scale: Math.min(2, window.devicePixelRatio || 1),
+    useCORS: true,
+    imageTimeout: 15000,
+    width: article.scrollWidth,
+    height: article.scrollHeight,
+    windowWidth: Math.max(document.documentElement.clientWidth, article.scrollWidth),
+    windowHeight: Math.max(document.documentElement.clientHeight, article.scrollHeight),
+  });
+}
+
 async function downloadArticleImage() {
   if (blockBuiltInGuideDownload()) return;
   const settings = readForm();
@@ -13589,21 +13900,7 @@ async function downloadArticleImage() {
     updateExportProgress("main", { title: "请准备 ZIP 下载", detail: "将生成高清长图和可编辑原稿 ZIP。", value: 18 });
     els.status.textContent = "正在生成长图...";
     updateExportProgress("main", { title: "正在渲染完整长文", detail: "正在合成长文主题、文字和图片…", value: 42 });
-    const canvas = await window.html2canvas(article, {
-      // 编辑/导出按钮只是预览里的操作入口，不该被印进长图。
-      ignoreElements: (node) => node.classList?.contains("article-live-actions"),
-      // 导出副本里将 color-mix() 计算出的 color(srgb …) 转成 rgba，
-      // 避免 html2canvas 1.x 在新版浏览器中报“不支持 color()”。
-      onclone: normalizeArticleExportColors,
-      backgroundColor: null,
-      scale: Math.min(2, window.devicePixelRatio || 1),
-      useCORS: true,
-      imageTimeout: 15000,
-      width: article.scrollWidth,
-      height: article.scrollHeight,
-      windowWidth: Math.max(document.documentElement.clientWidth, article.scrollWidth),
-      windowHeight: Math.max(document.documentElement.clientHeight, article.scrollHeight),
-    });
+    const canvas = await renderArticleCanvas(article);
     updateExportProgress("main", { title: "正在生成 PNG", detail: "长文画面已渲染，正在转换为高清图片…", value: 82 });
     const blob = await canvasToLosslessPngBlob(canvas);
     if (!blob) throw new Error("长图生成失败，请调整内容后再试");
@@ -13766,6 +14063,127 @@ async function downloadAll() {
 }
 
 const requestRender = debounce(render, 120);
+
+// 图文卡片按 6 英寸宽排版，高度跟随卡片比例，每张卡片占一页。
+const PRINT_CARD_PAGE_WIDTH_IN = 6;
+// 打印用的 iframe 要等打印对话框关闭后才能移除；下一次打印前也会清掉残留。
+let printFrameCleanup = null;
+
+function printDocumentTitle() {
+  const project = state.projects.find((item) => item.id === state.currentProjectId);
+  const title = String(project?.title || "").replace(/[\\/:*?"<>|\u0000-\u001f]/g, "").trim().slice(0, 80);
+  return title || "write-then-publish";
+}
+
+const PRINT_HEADER_RIGHT = "草帽路飞";
+const PRINT_FOOTER_LEFT = "AIInfraGuide全栈学习课程";
+// 页边框不能合并选择器，每个框都要单独写一遍样式。
+const PRINT_MARGIN_BOX_STYLE = 'font: 9pt Inter, -apple-system, "PingFang SC", sans-serif; color: #6b7280;';
+
+/** 转成 CSS 字符串字面量，用于 @page 页边框的 content；< 转义后标题里的 </style> 也不会截断样式。 */
+function cssStringLiteral(value) {
+  return `"${String(value).replace(/[\\"]/g, "\\$&").replace(/</g, "\\3C ").replace(/[\r\n]+/g, " ")}"`;
+}
+
+function articlePrintContent(article, title) {
+  const stylesheets = [...document.querySelectorAll('link[rel="stylesheet"]')]
+    .map((link) => `<link rel="stylesheet" href="${escapeHtml(link.href)}">`)
+    .join("");
+  // @page 不写 size：一旦指定纸张，Chrome 会锁住打印对话框里的「纸张尺寸」。
+  // 页边距由 @page 控制，正文铺满可打印区域，用户可在对话框里改纸张、边距和缩放。
+  // 页眉页脚用 @page 页边框绘制，counter(pages) 由浏览器在分页后填入总页数。
+  const css = `
+    @page {
+      margin: 18mm 16mm;
+      @top-left { content: ${cssStringLiteral(title)}; ${PRINT_MARGIN_BOX_STYLE} }
+      @top-right { content: ${cssStringLiteral(PRINT_HEADER_RIGHT)}; ${PRINT_MARGIN_BOX_STYLE} }
+      @bottom-left { content: ${cssStringLiteral(PRINT_FOOTER_LEFT)}; ${PRINT_MARGIN_BOX_STYLE} }
+      @bottom-right { content: counter(page) "/" counter(pages); ${PRINT_MARGIN_BOX_STYLE} }
+    }
+    /* styles.css 把 body 锁成一屏高并隐藏溢出，打印时要放开，否则只印出第一页。 */
+    html, body { display: block; height: auto; margin: 0; overflow: visible; background: #fff; }
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .article-preview { width: auto; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: 0; box-shadow: none; }
+    .article-preview video, .article-live-badge, .article-live-actions { display: none !important; }
+    .article-preview img, .article-preview figure, .article-preview pre, .article-preview blockquote, .article-preview tr { break-inside: avoid; }
+    .article-preview h1, .article-preview h2, .article-preview h3 { break-after: avoid; }
+  `;
+  return { head: `${stylesheets}<style>${css}</style>`, body: article.outerHTML };
+}
+
+async function cardPrintContent(objectUrls) {
+  for (const canvas of state.canvases) {
+    objectUrls.push(URL.createObjectURL(await canvasToLosslessPngBlob(canvas)));
+  }
+  const { width, height } = state.canvases[0];
+  const pageWidth = PRINT_CARD_PAGE_WIDTH_IN;
+  const pageHeight = Math.round((pageWidth * height * 1000) / width) / 1000;
+  // 图片比页面略矮一点，避免浏览器取整后把每张图挤出一张空白页。
+  const css = `
+    @page { size: ${pageWidth}in ${pageHeight}in; margin: 0; }
+    html, body { margin: 0; }
+    img { display: block; width: ${pageWidth}in; height: calc(${pageHeight}in - 2px); object-fit: contain; break-after: page; }
+    img:last-child { break-after: auto; }
+  `;
+  const body = objectUrls.map((url, index) => `<img src="${url}" alt="第 ${index + 1} 页">`).join("");
+  return { head: `<style>${css}</style>`, body };
+}
+
+/** 用浏览器打印功能导出 PDF：用户在打印对话框里选择「存为 PDF」。 */
+async function downloadPdf() {
+  if (blockBuiltInGuideDownload()) return;
+  printFrameCleanup?.();
+  const isArticle = state.appMode === "article";
+  let article = null;
+  if (isArticle) {
+    renderArticlePreview(readForm());
+    article = els.pages.querySelector(".article-preview");
+    if (!article) {
+      els.status.textContent = "长文生成失败，请先检查内容";
+      return;
+    }
+  } else if (!state.canvases.length) {
+    return;
+  }
+
+  const objectUrls = [];
+  const frame = document.createElement("iframe");
+  const previousTitle = document.title;
+  const cleanup = () => {
+    if (printFrameCleanup === cleanup) printFrameCleanup = null;
+    document.title = previousTitle;
+    frame.remove();
+    objectUrls.forEach((url) => URL.revokeObjectURL(url));
+  };
+  printFrameCleanup = cleanup;
+
+  try {
+    els.status.textContent = "正在准备打印页面...";
+    const title = printDocumentTitle();
+    const content = isArticle ? articlePrintContent(article, title) : await cardPrintContent(objectUrls);
+    frame.setAttribute("aria-hidden", "true");
+    frame.tabIndex = -1;
+    frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;";
+    frame.srcdoc = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>${content.head}</head><body>${content.body}</body></html>`;
+    await new Promise((resolve) => {
+      frame.addEventListener("load", resolve, { once: true });
+      document.body.append(frame);
+    });
+    const printWindow = frame.contentWindow;
+    await printWindow.document.fonts?.ready;
+    await Promise.all([...printWindow.document.images].map((image) => image.decode().catch(() => {})));
+    printWindow.addEventListener("afterprint", () => window.setTimeout(cleanup, 0), { once: true });
+    // 部分浏览器把顶层页面标题当作「存为 PDF」的默认文件名。
+    document.title = title;
+    printWindow.focus();
+    printWindow.print();
+    els.status.textContent = "已打开打印对话框，目标打印机选择「存为 PDF」即可保存";
+  } catch (error) {
+    console.error(error);
+    cleanup();
+    els.status.textContent = error?.message || "打印页面准备失败，请稍后重试";
+  }
+}
 
 function positionToolPopover(menu) {
   const popover = menu.querySelector(".tool-popover");
@@ -14413,6 +14831,10 @@ function bindEvents() {
   els.downloadArticle.addEventListener("click", () => {
     els.downloadMenu.open = false;
     void downloadArticleImage();
+  });
+  els.downloadPdf.addEventListener("click", () => {
+    els.downloadMenu.open = false;
+    void downloadPdf();
   });
   els.copyWechat.addEventListener("click", copyArticleToWechat);
   els.syncWechat.addEventListener("click", openWechatModal);
