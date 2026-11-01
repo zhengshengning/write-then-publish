@@ -35,7 +35,7 @@
     <meta name="twitter:description" content="一份 Markdown，排成小红书图文卡片或公众号长文。实况照片在浏览器本地合成，生成过程不上传原视频。" />
     <meta name="twitter:image" content="https://fawen.fun/brand/og-image.png" />
     <meta name="twitter:creator" content="@iamcora13" />
-    <link rel="stylesheet" href="src/styles.css?v=20261101-clearstyle" />
+    <link rel="stylesheet" href="src/styles.css?v=20261101-safari-print" />
     <!-- 长文主题、代码主题和 Mac 风格代码块的 CSS，由 app.js 按当前设置写入 -->
     <style id="articleThemeStyle"></style>
   </head>
@@ -307,7 +307,7 @@
                 <i data-lucide="images"></i>
               </summary>
               <div class="tool-popover image-popover">
-                <div class="image-batch-controls">
+                <div class="image-batch-controls cards-only">
                   <label>
                     图片宽度
                     <span class="percent-input">
@@ -340,7 +340,7 @@
               </div>
             </details>
 
-            <details id="bgThemeMenu" class="tool-menu bg-theme-menu">
+            <details id="bgThemeMenu" class="tool-menu bg-theme-menu cards-only">
               <summary class="tool-button" title="背景主题" aria-label="背景主题">
                 <i data-lucide="swatch-book"></i>
               </summary>
@@ -357,7 +357,7 @@
               <i data-lucide="remove-formatting"></i>
             </button>
 
-            <details class="tool-menu settings-menu">
+            <details class="tool-menu settings-menu cards-only">
               <summary class="tool-button" title="设计设置" aria-label="设计设置">
                 <i data-lucide="sliders-horizontal"></i>
               </summary>
@@ -494,10 +494,21 @@
             <section>
               <h3>字号</h3>
               <div id="articleSizeList" class="article-size-list" role="group" aria-label="字号">
-                <button type="button" class="article-option" data-article-size="small" title="主题字号的 90%">更小</button>
-                <button type="button" class="article-option active" data-article-size="normal" title="主题原本的字号">推荐</button>
-                <button type="button" class="article-option" data-article-size="large" title="主题字号的 110%">稍大</button>
-                <button type="button" class="article-option" data-article-size="xlarge" title="主题字号的 120%">更大</button>
+                <button type="button" class="article-option" data-article-size="90" title="主题字号的 90%">更小</button>
+                <button type="button" class="article-option active" data-article-size="100" title="主题原本的字号">推荐</button>
+                <button type="button" class="article-option" data-article-size="110" title="主题字号的 110%">稍大</button>
+                <label class="article-size-custom" title="主题字号的百分比，50–200">
+                  <input id="articleSizeInput" type="number" min="50" max="200" step="5" inputmode="numeric" value="100" aria-label="自定义字号百分比" />
+                </label>
+              </div>
+            </section>
+            <section>
+              <h3>字体</h3>
+              <div id="articleFontList" class="article-size-list" role="group" aria-label="字体">
+                <button type="button" class="article-option active" data-article-font-family="theme" title="使用主题自带的字体">默认</button>
+                <button type="button" class="article-option" data-article-font-family="sans" title="苹方、微软雅黑等无衬线字体">黑体</button>
+                <button type="button" class="article-option" data-article-font-family="serif" title="宋体，英文用 Georgia">宋体</button>
+                <button type="button" class="article-option" data-article-font-family="kai" title="楷体，英文用 Georgia">楷体</button>
               </div>
             </section>
             <section>
@@ -1467,13 +1478,13 @@
       }
     </script>
     <script src="src/default-avatar.js?v=20261030-luffy"></script>
-    <script src="src/article-themes.js?v=20261101-clearstyle"></script>
+    <script src="src/article-themes.js?v=20261101-safari-print"></script>
     <script>
       // markdown-nice 主题包（GPL-3.0）由 scripts/import-mdnice-themes.mjs 生成，只在本机使用，线上不加载。
       if (["localhost", "127.0.0.1", "::1", "[::1]"].includes(window.location.hostname) || window.location.protocol === "file:") {
         document.write('<script src="src/vendor/mdnice-themes.js" onerror="this.remove()"><\/script>');
       }
     </script>
-    <script src="src/app.js?v=20261101-clearstyle"></script>
+    <script src="src/app.js?v=20261101-safari-print"></script>
   </body>
 </html>

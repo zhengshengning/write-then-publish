@@ -42,9 +42,21 @@ const ARTICLE_CUSTOM_THEME_STORAGE_KEY = "writeThenPublishArticleCustomTheme.v1"
 const DEFAULT_ARTICLE_THEME = "wechat";
 const DEFAULT_ARTICLE_CODE_THEME = "github-dark";
 const ARTICLE_CUSTOM_THEME = "custom";
-// 字号按比例缩放主题里写死的字号，任何主题都适用
-const ARTICLE_SIZE_SCALES = { small: 0.9, normal: 1, large: 1.1, xlarge: 1.2 };
-const DEFAULT_ARTICLE_SIZE = "normal";
+// 字号是主题字号的百分比，按比例缩放主题里写死的字号，任何主题都适用
+const DEFAULT_ARTICLE_SIZE = 100;
+const ARTICLE_SIZE_MIN = 50;
+const ARTICLE_SIZE_MAX = 200;
+// 旧草稿存的是档位名
+const LEGACY_ARTICLE_SIZES = { small: 90, normal: 100, large: 110, xlarge: 120 };
+// 字体覆盖主题里的 font-family，代码保持等宽；theme 表示不覆盖。
+// 旧版的 articleFont 已并入主题 CSS，这里换个键名，免得旧草稿里的 "sans" 把主题字体盖掉。
+const DEFAULT_ARTICLE_FONT_FAMILY = "theme";
+const ARTICLE_FONT_STACKS = {
+  theme: "",
+  sans: '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif',
+  serif: 'Georgia, "Times New Roman", "Songti SC", "Noto Serif CJK SC", SimSun, serif',
+  kai: 'Georgia, "Times New Roman", "Kaiti SC", KaiTi, STKaiti, serif',
+};
 const ONBOARDING_STORAGE_KEY = "writeThenPublishOnboarding.v1";
 const ENTRY_MODE_SESSION_KEY = "writeThenPublishEntryMode.v1";
 const LAST_ACCOUNT_EMAIL_KEY = "writeThenPublishLastAccountEmail.v1";
@@ -327,6 +339,8 @@ const els = {
   articleCodeThemeList: $("#articleCodeThemeList"),
   articleMacCode: $("#articleMacCodeInput"),
   articleSizeList: $("#articleSizeList"),
+  articleSizeInput: $("#articleSizeInput"),
+  articleFontList: $("#articleFontList"),
   articleCssToggle: $("#articleCssToggleBtn"),
   articleCssPanel: $("#articleCssPanel"),
   articleCssEditor: $("#articleCssEditor"),
@@ -613,6 +627,7 @@ const state = {
   articleCodeTheme: DEFAULT_ARTICLE_CODE_THEME,
   articleMacCode: true,
   articleSize: DEFAULT_ARTICLE_SIZE,
+  articleFontFamily: DEFAULT_ARTICLE_FONT_FAMILY,
   obsidianNotePath: null,
   currentProjectId: null,
   projects: [],
@@ -757,6 +772,7 @@ function defaultFormState() {
     articleCodeTheme: DEFAULT_ARTICLE_CODE_THEME,
     articleMacCode: true,
     articleSize: DEFAULT_ARTICLE_SIZE,
+    articleFontFamily: DEFAULT_ARTICLE_FONT_FAMILY,
     obsidianNotePath: null,
     uiTheme: "light",
     avatar: sampleAvatar,
@@ -1029,6 +1045,7 @@ function readForm() {
     articleCodeTheme: normalizeArticleCodeTheme(state.articleCodeTheme),
     articleMacCode: state.articleMacCode !== false,
     articleSize: normalizeArticleSize(state.articleSize),
+    articleFontFamily: normalizeArticleFontFamily(state.articleFontFamily),
     obsidianNotePath: state.obsidianNotePath,
     uiTheme: state.uiTheme,
     avatar: state.avatar,
@@ -1112,6 +1129,7 @@ function applyForm(data) {
   state.articleCodeTheme = normalizeArticleCodeTheme(data.articleCodeTheme);
   state.articleMacCode = data.articleMacCode !== false;
   state.articleSize = normalizeArticleSize(data.articleSize);
+  state.articleFontFamily = normalizeArticleFontFamily(data.articleFontFamily);
   state.obsidianNotePath = normalizeObsidianNotePath(data.obsidianNotePath);
   updateAppMode();
   updateHeaderModeButton();
@@ -1255,6 +1273,7 @@ async function setAppMode(mode) {
   if (state.appMode === nextMode) return false;
   state.appMode = nextMode;
   updateAppMode();
+  updateImageList();
   await render();
   return moveFolderDraftForCurrentType();
 }
@@ -1307,7 +1326,11 @@ function updateArticleControls() {
   });
   els.articleMacCode.checked = state.articleMacCode !== false;
   els.articleSizeList.querySelectorAll("[data-article-size]").forEach((button) => {
-    button.classList.toggle("active", button.dataset.articleSize === state.articleSize);
+    button.classList.toggle("active", Number(button.dataset.articleSize) === state.articleSize);
+  });
+  els.articleSizeInput.value = String(state.articleSize);
+  els.articleFontList.querySelectorAll("[data-article-font-family]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.articleFontFamily === state.articleFontFamily);
   });
   syncArticleCssEditor();
 }
@@ -1317,6 +1340,7 @@ async function setArticleOption(type, value) {
   if (type === "codeTheme") state.articleCodeTheme = normalizeArticleCodeTheme(value);
   if (type === "macCode") state.articleMacCode = Boolean(value);
   if (type === "size") state.articleSize = normalizeArticleSize(value);
+  if (type === "fontFamily") state.articleFontFamily = normalizeArticleFontFamily(value);
   updateArticleControls();
   // 和 markdown-nice 一样：切到自定义主题时自动打开 CSS 编辑器
   if (type === "theme" && state.articleTheme === ARTICLE_CUSTOM_THEME && els.articleCssPanel.hidden) {
@@ -1352,7 +1376,14 @@ function normalizeArticleCodeTheme(value) {
 }
 
 function normalizeArticleSize(value) {
-  return Object.hasOwn(ARTICLE_SIZE_SCALES, value) ? value : DEFAULT_ARTICLE_SIZE;
+  if (Object.hasOwn(LEGACY_ARTICLE_SIZES, value)) return LEGACY_ARTICLE_SIZES[value];
+  const size = Math.round(Number(value));
+  if (value === null || value === "" || !Number.isFinite(size)) return DEFAULT_ARTICLE_SIZE;
+  return clamp(size, ARTICLE_SIZE_MIN, ARTICLE_SIZE_MAX);
+}
+
+function normalizeArticleFontFamily(value) {
+  return Object.hasOwn(ARTICLE_FONT_STACKS, value) ? value : DEFAULT_ARTICLE_FONT_FAMILY;
 }
 
 // ---------- 长文主题：照 markdown-nice 的做法，一个主题就是一段作用于 #nice 的 CSS ----------
@@ -1489,8 +1520,13 @@ function articleThemeCss(settings) {
   const basic = theme.basic ? articleThemeLibrary().basic : "";
   // 主题没写正文字号时按 16px 算，这样字号档位对所有主题都起作用
   const base = "#nice { font-size: 16px; }";
-  const scale = ARTICLE_SIZE_SCALES[normalizeArticleSize(settings.articleSize)];
-  return scopeArticleCss([base, basic, theme.css, code.css].join("\n"), scale);
+  const scale = normalizeArticleSize(settings.articleSize) / 100;
+  // 主题会在标题、引用等元素上单独写 font-family，所以要盖到所有后代并加 !important；代码块和行内代码保持等宽。
+  const fontStack = ARTICLE_FONT_STACKS[normalizeArticleFontFamily(settings.articleFontFamily)];
+  const font = fontStack
+    ? `#nice, #nice *:not(pre, pre *, code, code *) { font-family: ${fontStack} !important; }`
+    : "";
+  return scopeArticleCss([base, basic, theme.css, code.css, font].join("\n"), scale);
 }
 
 function applyArticleThemeStyle(settings) {
@@ -3797,7 +3833,8 @@ function migrateStoredState(data) {
   data.articleCodeTheme = normalizeArticleCodeTheme(data.articleCodeTheme);
   data.articleMacCode = data.articleMacCode !== false;
   data.articleSize = normalizeArticleSize(data.articleSize);
-  // 字体、主题色已并入主题 CSS
+  data.articleFontFamily = normalizeArticleFontFamily(data.articleFontFamily);
+  // 旧版的字体、主题色已并入主题 CSS
   delete data.articleFont;
   delete data.articleColor;
   data.images = normalizeImagesForContent(data.content, data.images);
@@ -6162,6 +6199,35 @@ function ensureSelectionMirror() {
   return mirror;
 }
 
+const TEXTAREA_MIRROR_STYLE_PROPS = [
+  "fontFamily", "fontSize", "fontWeight", "fontStyle", "lineHeight", "letterSpacing", "wordSpacing",
+  "textIndent", "textTransform", "tabSize", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft",
+  "borderTopWidth", "borderRightWidth", "borderBottomWidth", "borderLeftWidth", "boxSizing",
+  "wordBreak", "overflowWrap", "textAlign", "borderRadius",
+];
+
+// 返回 textarea 中第 index 个字符所在行顶部相对内容顶部的偏移（与 scrollTop 同一坐标系），
+// 按实际折行计算，长段落自动换行时也准确。
+function measureTextareaOffsetTop(textarea, index) {
+  const mirror = ensureSelectionMirror();
+  const cs = window.getComputedStyle(textarea);
+  for (const prop of TEXTAREA_MIRROR_STYLE_PROPS) mirror.style[prop] = cs[prop];
+  // clientWidth 不含边框和滚动条；镜像按 textarea 实际可排版宽度折行。
+  mirror.style.boxSizing = "border-box";
+  mirror.style.borderTopWidth = "0";
+  mirror.style.borderRightWidth = "0";
+  mirror.style.borderBottomWidth = "0";
+  mirror.style.borderLeftWidth = "0";
+  mirror.style.width = `${textarea.clientWidth}px`;
+  mirror.style.height = "auto";
+  const marker = document.createElement("span");
+  marker.textContent = "\u200b";
+  mirror.replaceChildren(document.createTextNode(textarea.value.slice(0, index)), marker);
+  const top = marker.offsetTop;
+  mirror.replaceChildren();
+  return top;
+}
+
 function measureSelectionInTextarea(textarea) {
   const start = textarea.selectionStart;
   const end = textarea.selectionEnd;
@@ -6169,13 +6235,7 @@ function measureSelectionInTextarea(textarea) {
   const mirror = ensureSelectionMirror();
   const cs = window.getComputedStyle(textarea);
   const taRect = textarea.getBoundingClientRect();
-  const props = [
-    "fontFamily", "fontSize", "fontWeight", "fontStyle", "lineHeight", "letterSpacing", "wordSpacing",
-    "textIndent", "textTransform", "tabSize", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft",
-    "borderTopWidth", "borderRightWidth", "borderBottomWidth", "borderLeftWidth", "boxSizing",
-    "wordBreak", "overflowWrap", "textAlign", "borderRadius",
-  ];
-  for (const prop of props) mirror.style[prop] = cs[prop];
+  for (const prop of TEXTAREA_MIRROR_STYLE_PROPS) mirror.style[prop] = cs[prop];
   mirror.style.left = `${taRect.left - textarea.scrollLeft}px`;
   mirror.style.top = `${taRect.top - textarea.scrollTop}px`;
   mirror.style.width = `${textarea.offsetWidth}px`;
@@ -6338,6 +6398,8 @@ function findNext() {
   state.lastFindIndex = index;
   els.content.focus();
   els.content.setSelectionRange(index, index + needle.length);
+  // 浏览器不一定会把 textarea 滚到选区（Firefox 基本不滚），这里主动定位到匹配处。
+  scrollTextareaToRange(index, index + needle.length, { onlyIfHidden: true });
   const count = countFindMatches();
   els.status.textContent = wrapped
     ? `已循环到开头：第 ${index + 1} 个字符处（共 ${count} 处）`
@@ -8270,7 +8332,8 @@ function updateImageList() {
       : image.crop
         ? "已裁剪"
         : "原图比例";
-    status.textContent = `${liveLabel} · ${widthLabel}`;
+    // 长文里图片按主题铺满，宽度设置不起作用，就不显示了
+    status.textContent = state.appMode === "article" ? liveLabel : `${liveLabel} · ${widthLabel}`;
     meta.append(name, status);
 
     const actions = document.createElement("div");
@@ -10327,7 +10390,7 @@ function markdownToArticleHtml(markdown, images = {}, { articleMacCode = true } 
           `</figure>`,
         );
       } else if (image?.src) {
-        html.push(`<figure><img src="${escapeAttribute(image.src)}" alt="${escapeAttribute(image.name || "图片")}" /></figure>`);
+        html.push(`<figure><img src="${escapeAttribute(articleImageSrc(image))}" alt="${escapeAttribute(image.name || "图片")}" /></figure>`);
       }
       continue;
     }
@@ -10603,6 +10666,47 @@ function createLivePreviewVideo(image, imageId, className) {
     }
   });
   return video;
+}
+
+// 长文用 <img> 直接显示图片，裁剪过的图另画一张裁好的放进去，
+// 这样公众号、飞书复制和长图导出拿到的都是裁好的图。GIF 画到 canvas 上只剩第一帧，长文里保留原图。
+const articleCropCache = new WeakMap();
+
+function articleCropKey(image) {
+  const { x, y, width, height } = image.crop;
+  return `${x},${y},${width},${height}|${image.src}`;
+}
+
+function articleImageNeedsCrop(image) {
+  return Boolean(image?.src && image.crop && image.kind !== "live")
+    && !/^data:image\/gif/i.test(image.src) && !/\.gif$/i.test(image.name || "");
+}
+
+async function prepareArticleImageCrops(images) {
+  await Promise.all(Object.values(images || {}).map(async (image) => {
+    if (!articleImageNeedsCrop(image)) return;
+    const key = articleCropKey(image);
+    if (articleCropCache.get(image)?.key === key) return;
+    try {
+      const source = await loadImage(image.src);
+      const rect = clampCropRect(image.crop, source);
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(rect.width));
+      canvas.height = Math.max(1, Math.round(rect.height));
+      canvas.getContext("2d").drawImage(source, rect.x, rect.y, rect.width, rect.height, 0, 0, canvas.width, canvas.height);
+      const jpeg = /^data:image\/jpe?g/i.test(image.src) || /\.jpe?g$/i.test(image.name || "");
+      articleCropCache.set(image, { key, src: canvas.toDataURL(jpeg ? "image/jpeg" : "image/png", 0.92) });
+    } catch {
+      // 跨域图读不出像素时退回原图
+      articleCropCache.delete(image);
+    }
+  }));
+}
+
+function articleImageSrc(image) {
+  if (!articleImageNeedsCrop(image)) return image.src;
+  const cached = articleCropCache.get(image);
+  return cached?.key === articleCropKey(image) ? cached.src : image.src;
 }
 
 function hydrateArticleLiveMedia(article, images) {
@@ -11000,14 +11104,28 @@ function rgbToHsl(rgb) {
   return { h: h * 60, s, l };
 }
 
-FEISHU_PALETTE.forEach((entry) => (entry.hue = rgbToHsl(entry.text).h));
+// CIELAB 的色相角（LCh 的 h）按人眼感知均匀；HSL 色相在青绿一带偏差很大（青绿离蓝比离绿近）。
+function labHue(rgb) {
+  const [r, g, b] = (String(rgb).match(/\d+/g) || []).slice(0, 3).map((channel) => {
+    const value = Number(channel) / 255;
+    return value > 0.04045 ? ((value + 0.055) / 1.055) ** 2.4 : value / 12.92;
+  });
+  const f = (t) => (t > 216 / 24389 ? Math.cbrt(t) : (24389 / 27 * t + 16) / 116);
+  const x = f((0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047);
+  const y = f(0.2126 * r + 0.7152 * g + 0.0722 * b);
+  const z = f((0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883);
+  return (Math.atan2(200 * (y - z), 500 * (x - y)) * 180 / Math.PI + 360) % 360;
+}
+
+FEISHU_PALETTE.forEach((entry) => (entry.hue = labHue(entry.text)));
 
 /** 把任意颜色换成飞书色板里色相最近的一格；正文色（深而不艳）和白底返回空串，表示不写颜色。 */
 function feishuPaletteColor(rgb, role) {
   if (!rgb) return "";
-  const { h, s, l } = rgbToHsl(rgb);
+  const { s, l } = rgbToHsl(rgb);
   if (role === "text" && (l < 0.2 || l > 0.9 || (s < 0.35 && l < 0.35))) return "";
   if (role === "background" && l > 0.97) return "";
+  const h = labHue(rgb);
   const hueDistance = (entry) => Math.min(Math.abs(entry.hue - h), 360 - Math.abs(entry.hue - h));
   const entry = s < 0.2 ? FEISHU_GRAY : FEISHU_PALETTE.reduce((best, item) => (hueDistance(item) < hueDistance(best) ? item : best));
   if (role === "text") return entry.text;
@@ -11031,30 +11149,67 @@ function serializeArticleForFeishu() {
   article.innerHTML = markdownToArticleHtml(form.content, form.images, form);
   document.body.append(article);
   const root = article.cloneNode(true);
+  const sources = Array.from(article.querySelectorAll(FEISHU_THEMED_TEXT));
   const themed = Array.from(root.querySelectorAll(FEISHU_THEMED_TEXT));
-  article.querySelectorAll(FEISHU_THEMED_TEXT).forEach((source, index) => {
-    const computed = window.getComputedStyle(source);
+  const blockStyles = new Map();
+  const strongSpans = new Set();
+  sources.forEach((source, index) => {
+    // markdown-nice 主题常把标题的字色、色块写在 h2 > .content 上，h2 本身没有颜色；
+    // .content 下面会被拆掉，所以颜色要从真正包着文字的 .content 上读。
+    const content = source.tagName === "STRONG" || source.tagName === "TH" ? null : source.querySelector(":scope > .content");
+    const computed = window.getComputedStyle(content || source);
     // 先原样写下主题算出来的颜色，下面统一换成飞书色板；正文黑和白底会在那一步被去掉。
-    const styles = [`color:${opaqueCssColor(computed.color)}`];
-    const background = opaqueCssColor(computed.backgroundColor);
-    if (background) styles.push(`background-color:${background}`);
-    const span = document.createElement("span");
-    span.setAttribute("style", styles.join(";"));
+    const color = opaqueCssColor(computed.color);
+    let background = opaqueCssColor(computed.backgroundColor)
+      || (content ? opaqueCssColor(window.getComputedStyle(source).backgroundColor) : "");
     const target = themed[index];
-    // 加粗要写成 span > strong：颜色挂在最外层的行内元素上，飞书才认；标题和表头是块，只能包在里面。
-    if (target.tagName === "STRONG") {
-      target.replaceWith(span);
-      span.append(target);
-    } else {
-      span.append(...target.childNodes);
-      target.append(span);
+    if (target.tagName !== "STRONG") {
+      blockStyles.set(target, { color, background });
+      return;
     }
+    // 标题、表头里的加粗会从外层的颜色 span 里拆出来单独成段，自己没有底色时补上外层色块，不然色块中间断一截。
+    const block = source.parentElement?.closest("h1, h2, h3, h4, h5, h6, th");
+    if (!background && block) background = blockStyles.get(themed[sources.indexOf(block)])?.background || "";
+    // 加粗要写成 span > strong：颜色挂在最外层的行内元素上，飞书才认。
+    const span = document.createElement("span");
+    span.setAttribute("style", [`color:${color}`, background && `background-color:${background}`].filter(Boolean).join(";"));
+    target.replaceWith(span);
+    span.append(target);
+    strongSpans.add(span);
   });
   article.remove();
 
   // 标题里 markdown-nice 结构的装饰 span 和列表项外的 section 拆掉，只留语义标签。
   root.querySelectorAll(".prefix, .suffix, .article-code-head").forEach((node) => node.remove());
   root.querySelectorAll(".content, li > section").forEach((node) => node.replaceWith(...node.childNodes));
+
+  // 标题和表头是块，颜色只能包在里面。整块包一层的话，主题给里面加粗设的黑色在飞书里写不出来
+  // （色板里没有黑色），加粗会跟着变成标题色；所以只包加粗前后的文字，加粗用自己的 span。
+  blockStyles.forEach(({ color, background }, block) => {
+    const wrapRuns = (parent) => {
+      let run = [];
+      const flush = () => {
+        if (!run.length) return;
+        const span = document.createElement("span");
+        span.setAttribute("style", [`color:${color}`, background && `background-color:${background}`].filter(Boolean).join(";"));
+        run[0].before(span);
+        span.append(...run);
+        run = [];
+      };
+      Array.from(parent.childNodes).forEach((node) => {
+        if (strongSpans.has(node)) {
+          flush();
+        } else if (node.nodeType === Node.ELEMENT_NODE && [...strongSpans].some((span) => node.contains(span))) {
+          flush();
+          wrapRuns(node);
+        } else {
+          run.push(node);
+        }
+      });
+      flush();
+    };
+    wrapRuns(block);
+  });
 
   // 代码块：高亮 span 摊平成纯文本，保留原始换行，飞书才会识别成代码块。
   root.querySelectorAll("pre").forEach((pre) => {
@@ -12206,6 +12361,7 @@ let renderSequence = 0;
 async function render() {
   const seq = ++renderSequence;
   await Promise.all([hydrateLiveMediaForState(), hydrateImageSourcesForState()]);
+  if (state.appMode === "article") await prepareArticleImageCrops(state.images);
   if (seq !== renderSequence) return;
   const settings = readForm();
   updateDraftTitlePlaceholder();
@@ -13100,12 +13256,17 @@ function applyImageBoxStyle(box, hit) {
   box.style.height = `${(hit.height / CANVAS_HEIGHT) * 100}%`;
 }
 
-function scrollTextareaToRange(index) {
-  const before = els.content.value.slice(0, index);
-  const lineIndex = before.split("\n").length - 1;
-  const lineHeight = Number.parseFloat(getComputedStyle(els.content).lineHeight) || 28;
-  const targetTop = Math.max(0, lineIndex * lineHeight - els.content.clientHeight / 2);
-  els.content.scrollTop = targetTop;
+function scrollTextareaToRange(start, end = start, { onlyIfHidden = false } = {}) {
+  const textarea = els.content;
+  const lineHeight = Number.parseFloat(getComputedStyle(textarea).lineHeight) || 28;
+  const top = measureTextareaOffsetTop(textarea, start);
+  const bottom = (end > start ? measureTextareaOffsetTop(textarea, end) : top) + lineHeight;
+  const viewTop = textarea.scrollTop;
+  const viewBottom = viewTop + textarea.clientHeight;
+  if (onlyIfHidden && top >= viewTop && bottom <= viewBottom) return;
+  // 目标区域放到可视区中间；比可视区还高时让开头贴顶。
+  const offset = Math.max(0, (textarea.clientHeight - (bottom - top)) / 2);
+  textarea.scrollTop = Math.max(0, top - offset);
 }
 
 function setPreviewImageAlign(event) {
@@ -14600,6 +14761,7 @@ async function downloadArticleImage() {
     state.appMode = "article";
     updateAppMode();
   }
+  await prepareArticleImageCrops(settings.images);
   renderArticlePreview(settings);
 
   const article = els.pages.querySelector(".article-preview");
@@ -14800,7 +14962,7 @@ function printDocumentTitle() {
 }
 
 const PRINT_HEADER_RIGHT = "草帽路飞";
-const PRINT_FOOTER_LEFT = "AIInfraGuide全栈学习课程";
+const PRINT_FOOTER_LEFT = "草帽路飞的AIInfra进阶训练营";
 // 页边框不能合并选择器，每个框都要单独写一遍样式。
 const PRINT_MARGIN_BOX_STYLE = 'font: 9pt Inter, -apple-system, "PingFang SC", sans-serif; color: #6b7280;';
 
@@ -14809,21 +14971,40 @@ function cssStringLiteral(value) {
   return `"${String(value).replace(/[\\"]/g, "\\$&").replace(/</g, "\\3C ").replace(/[\r\n]+/g, " ")}"`;
 }
 
-function articlePrintContent(article, title) {
+// Safari、Firefox 不支持 @page 页边框，fixed 元素和表头也不会每页重复，只能自己按 A4 分页、每页画页眉页脚。
+function printSupportsMarginBoxes() {
+  return typeof CSSMarginRule !== "undefined";
+}
+
+function articlePrintContent(article, title, date) {
   const stylesheets = [...document.querySelectorAll('link[rel="stylesheet"]')]
     .map((link) => `<link rel="stylesheet" href="${escapeHtml(link.href)}">`)
     .join("");
-  // @page 不写 size：一旦指定纸张，Chrome 会锁住打印对话框里的「纸张尺寸」。
+  // 支持页边框时 @page 不写 size：一旦指定纸张，Chrome 会锁住打印对话框里的「纸张尺寸」。
   // 页边距由 @page 控制，正文铺满可打印区域，用户可在对话框里改纸张、边距和缩放。
   // 页眉页脚用 @page 页边框绘制，counter(pages) 由浏览器在分页后填入总页数。
-  const css = `
+  // 手动分页时纸张固定 A4、边距为 0，每页高度比纸张略矮，避免浏览器取整后多出空白页。
+  const pageCss = printSupportsMarginBoxes()
+    ? `
     @page {
       margin: 18mm 16mm;
       @top-left { content: ${cssStringLiteral(title)}; ${PRINT_MARGIN_BOX_STYLE} }
-      @top-right { content: ${cssStringLiteral(PRINT_HEADER_RIGHT)}; ${PRINT_MARGIN_BOX_STYLE} }
+      @top-right { content: ${cssStringLiteral(date)}; ${PRINT_MARGIN_BOX_STYLE} }
       @bottom-left { content: ${cssStringLiteral(PRINT_FOOTER_LEFT)}; ${PRINT_MARGIN_BOX_STYLE} }
       @bottom-right { content: counter(page) "/" counter(pages); ${PRINT_MARGIN_BOX_STYLE} }
-    }
+    }`
+    : `
+    @page { size: 210mm 297mm; margin: 0; }
+    .print-page { position: relative; box-sizing: border-box; width: 210mm; height: calc(297mm - 2px); padding: 18mm 16mm; overflow: hidden; break-after: page; }
+    .print-page:last-child { break-after: auto; }
+    .print-page-head, .print-page-foot { position: absolute; left: 16mm; right: 16mm; display: flex; justify-content: space-between; gap: 8mm; ${PRINT_MARGIN_BOX_STYLE} line-height: 1.4; }
+    .print-page-head { top: 7mm; }
+    .print-page-foot { bottom: 7mm; }
+    .print-page-head span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .print-page > .article-preview { height: 100%; overflow: hidden; }
+    .print-page > .article-preview > :first-child { margin-top: 0; }
+    .print-page img { max-height: 230mm; object-fit: contain; }`;
+  const css = `${pageCss}
     /* styles.css 把 body 锁成一屏高并隐藏溢出，打印时要放开，否则只印出第一页。 */
     html, body { display: block; height: auto; margin: 0; overflow: visible; background: #fff; }
     body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -14835,6 +15016,156 @@ function articlePrintContent(article, title) {
   // 主题样式是写在页面里的 <style>，不在样式表链接里，要单独带上
   const themeCss = els.articleThemeStyle.textContent.replace(/<\/style/gi, "<\\/style");
   return { head: `${stylesheets}<style>${themeCss}</style><style>${css}</style>`, body: article.outerHTML };
+}
+
+/** 把长块拆成能逐段放进页面的单元：列表按条目、表格按行（每段都带表头）、代码块按行；其他块返回 null。 */
+function printBlockUnits(block) {
+  const doc = block.ownerDocument;
+  if (block.matches("ul, ol") && block.children.length > 1) {
+    const items = [...block.children];
+    return {
+      count: items.length,
+      build(start, end) {
+        const piece = block.cloneNode(false);
+        piece.append(...items.slice(start, end).map((item) => item.cloneNode(true)));
+        return piece;
+      },
+    };
+  }
+  const rows = block.matches(".article-table-wrap") ? block.querySelectorAll("tbody > tr") : [];
+  if (rows.length > 1) {
+    return {
+      count: rows.length,
+      build(start, end) {
+        const piece = block.cloneNode(true);
+        [...piece.querySelectorAll("tbody > tr")].forEach((row, index) => {
+          if (index < start || index >= end) row.remove();
+        });
+        return piece;
+      },
+    };
+  }
+  const code = block.matches("pre") ? block.querySelector(":scope > code") : null;
+  if (!code) return null;
+  // 每行的起点记成 Range 边界，Range.cloneContents 会补齐跨行的高亮 span；Mac 头部只留在第一段。
+  const points = [[code, 0]];
+  const walker = doc.createTreeWalker(code, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    for (let index = node.data.indexOf("\n"); index !== -1; index = node.data.indexOf("\n", index + 1)) {
+      points.push([node, index + 1]);
+    }
+  }
+  // 结尾的换行后面没有内容，不算新的一行
+  const tail = doc.createRange();
+  tail.setStart(...points[points.length - 1]);
+  tail.setEnd(code, code.childNodes.length);
+  if (points.length > 1 && !tail.toString()) points.pop();
+  points.push([code, code.childNodes.length]);
+  if (points.length < 3) return null;
+  return {
+    count: points.length - 1,
+    build(start, end) {
+      const range = doc.createRange();
+      range.setStart(...points[start]);
+      range.setEnd(...points[end]);
+      const piece = block.cloneNode(false);
+      const pieceCode = code.cloneNode(false);
+      pieceCode.append(range.cloneContents());
+      piece.append(pieceCode);
+      return piece;
+    },
+  };
+}
+
+/** 手动分页：把正文逐块放进固定高度的 A4 页面，放不下就换页，长块拆开续到下一页，每页带上页眉页脚。 */
+function paginateArticleForPrint(doc, title, date) {
+  const source = doc.querySelector(".article-preview");
+  const pages = [];
+  let body = null;
+  const newPage = () => {
+    const page = doc.createElement("section");
+    page.className = "print-page";
+    const head = doc.createElement("header");
+    head.className = "print-page-head";
+    head.append(Object.assign(doc.createElement("span"), { textContent: title }), Object.assign(doc.createElement("span"), { textContent: date }));
+    const foot = doc.createElement("footer");
+    foot.className = "print-page-foot";
+    const pageNumber = doc.createElement("span");
+    foot.append(Object.assign(doc.createElement("span"), { textContent: PRINT_FOOTER_LEFT }), pageNumber);
+    body = source.cloneNode(false);
+    page.append(head, body, foot);
+    doc.body.append(page);
+    pages.push(pageNumber);
+  };
+  // 换页时把上一页末尾孤零零的标题一起带过去
+  const breakPage = () => {
+    const last = body.lastElementChild;
+    const carry = body.childElementCount > 1 && last.matches("h1, h2, h3, h4, h5, h6") ? last : null;
+    newPage();
+    if (carry) body.append(carry);
+  };
+  const fits = (node) => node.getBoundingClientRect().bottom <= body.getBoundingClientRect().top + body.clientHeight + 0.5;
+  // 单独占一页还放不下的块（超长段落、引用）整体缩小；Safari 打印时 zoom 会撑破页面，改用 transform。
+  // 缩小后布局高度不变，后面的块会排到下一页，多出的部分被页面的 overflow 裁掉。
+  const shrinkToFit = (node) => {
+    const available = body.getBoundingClientRect().top + body.clientHeight - node.getBoundingClientRect().top;
+    node.style.transformOrigin = "0 0";
+    node.style.transform = `scale(${Math.max(0.1, available / node.getBoundingClientRect().height)})`;
+  };
+  const placeWhole = (block) => {
+    body.append(block);
+    if (fits(block)) return;
+    if (body.childElementCount > 1) {
+      block.remove();
+      breakPage();
+      body.append(block);
+      if (fits(block)) return;
+    }
+    shrinkToFit(block);
+  };
+  const placeUnits = (units) => {
+    let start = 0;
+    while (start < units.count) {
+      // 二分找出当前页还能放下的最多单元数
+      let low = start;
+      let high = units.count;
+      while (low < high) {
+        const mid = Math.ceil((low + high) / 2);
+        const trial = units.build(start, mid);
+        body.append(trial);
+        if (fits(trial)) low = mid;
+        else high = mid - 1;
+        trial.remove();
+      }
+      if (low > start) {
+        body.append(units.build(start, low));
+        start = low;
+        if (start < units.count) breakPage();
+      } else if (body.childElementCount) {
+        breakPage();
+      } else {
+        const piece = units.build(start, start + 1);
+        body.append(piece);
+        shrinkToFit(piece);
+        start += 1;
+        if (start < units.count) breakPage();
+      }
+    }
+  };
+
+  newPage();
+  for (const block of [...source.children]) {
+    body.append(block);
+    const fitsWhole = fits(block);
+    block.remove();
+    const units = fitsWhole ? null : printBlockUnits(block);
+    if (units) placeUnits(units);
+    else placeWhole(block);
+  }
+  source.remove();
+  pages.forEach((pageNumber, index) => {
+    pageNumber.textContent = `${index + 1}/${pages.length}`;
+  });
 }
 
 async function cardPrintContent(objectUrls) {
@@ -14886,7 +15217,9 @@ async function downloadPdf() {
   try {
     els.status.textContent = "正在准备打印页面...";
     const title = printDocumentTitle();
-    const content = isArticle ? articlePrintContent(article, title) : await cardPrintContent(objectUrls);
+    const date = formatCardDate(new Date());
+    const paged = isArticle && !printSupportsMarginBoxes();
+    const content = isArticle ? articlePrintContent(article, title, date) : await cardPrintContent(objectUrls);
     frame.setAttribute("aria-hidden", "true");
     frame.tabIndex = -1;
     frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;";
@@ -14898,12 +15231,19 @@ async function downloadPdf() {
     const printWindow = frame.contentWindow;
     await printWindow.document.fonts?.ready;
     await Promise.all([...printWindow.document.images].map((image) => image.decode().catch(() => {})));
+    // 分页要量高度，必须等字体和图片都就绪；分页后图片是复制出来的新节点，再等一次解码。
+    if (paged) {
+      paginateArticleForPrint(printWindow.document, title, date);
+      await Promise.all([...printWindow.document.images].map((image) => image.decode().catch(() => {})));
+    }
     printWindow.addEventListener("afterprint", () => window.setTimeout(cleanup, 0), { once: true });
     // 部分浏览器把顶层页面标题当作「存为 PDF」的默认文件名。
     document.title = title;
     printWindow.focus();
     printWindow.print();
-    els.status.textContent = "已打开打印对话框，目标打印机选择「存为 PDF」即可保存";
+    els.status.textContent = paged
+      ? "已打开打印对话框，选择「存为 PDF」，并取消勾选「打印页眉和页脚」"
+      : "已打开打印对话框，目标打印机选择「存为 PDF」即可保存";
   } catch (error) {
     console.error(error);
     cleanup();
@@ -15001,6 +15341,15 @@ function bindEvents() {
   els.articleSizeList.addEventListener("click", (event) => {
     const button = event.target.closest("[data-article-size]");
     if (button) setArticleOption("size", button.dataset.articleSize);
+  });
+  // 用 change 而不是 input：输入到一半（如「1」）不会被立刻夹到最小值；点上下箭头和回车也会触发
+  els.articleSizeInput.addEventListener("change", () => setArticleOption("size", els.articleSizeInput.value));
+  els.articleFontList.querySelectorAll("[data-article-font-family]").forEach((button) => {
+    button.style.fontFamily = ARTICLE_FONT_STACKS[button.dataset.articleFontFamily] || "";
+  });
+  els.articleFontList.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-article-font-family]");
+    if (button) setArticleOption("fontFamily", button.dataset.articleFontFamily);
   });
   els.articleCssToggle.addEventListener("click", () => setArticleCssEditorOpen(els.articleCssPanel.hidden));
 
