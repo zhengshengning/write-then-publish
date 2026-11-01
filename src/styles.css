@@ -2785,6 +2785,24 @@ body.export-busy {
   box-shadow: inset 0 0 0 1px var(--active-border);
 }
 
+.article-bg-option {
+  justify-items: center;
+  gap: 4px;
+  padding: 6px 4px;
+  white-space: nowrap;
+}
+
+.article-bg-swatch {
+  width: 28px;
+  height: 12px;
+  border: 1px solid rgb(0 0 0 / 0.16);
+  border-radius: 4px;
+}
+
+.article-bg-swatch.is-theme {
+  border-style: dashed;
+}
+
 .article-switch {
   display: flex;
   align-items: center;

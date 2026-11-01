@@ -57,6 +57,30 @@ const ARTICLE_FONT_STACKS = {
   serif: 'Georgia, "Times New Roman", "Songti SC", "Noto Serif CJK SC", SimSun, serif',
   kai: 'Georgia, "Times New Roman", "Kaiti SC", KaiTi, STKaiti, serif',
 };
+// 背景主题只换文章底色和底纹，文字颜色仍由主题决定，所以只放浅色；theme 表示用主题自带的背景。
+const DEFAULT_ARTICLE_BACKGROUND = "theme";
+const ARTICLE_BACKGROUNDS = {
+  theme: null,
+  white: { color: "#ffffff" },
+  paper: { color: "#faf5ea" },
+  mint: { color: "#eef8f2" },
+  sky: { color: "#eef5fc" },
+  rose: { color: "#fdf2f6" },
+  grid: {
+    color: "#fbfcfe",
+    image: "linear-gradient(rgba(37, 99, 235, 0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(37, 99, 235, 0.08) 1px, transparent 1px)",
+    size: "24px 24px",
+    swatchSize: "6px 6px",
+  },
+  // 长图用的 html2canvas 画不出小尺寸的 radial-gradient，所以底纹只用 linear-gradient。
+  lines: {
+    color: "#fffdf7",
+    image: "linear-gradient(transparent 31px, rgba(194, 65, 12, 0.1) 31px, rgba(194, 65, 12, 0.1) 32px, transparent 32px)",
+    size: "100% 32px",
+    swatchImage: "linear-gradient(transparent 3px, rgba(194, 65, 12, 0.35) 3px, rgba(194, 65, 12, 0.35) 4px, transparent 4px)",
+    swatchSize: "100% 4px",
+  },
+};
 const ONBOARDING_STORAGE_KEY = "writeThenPublishOnboarding.v1";
 const ENTRY_MODE_SESSION_KEY = "writeThenPublishEntryMode.v1";
 const LAST_ACCOUNT_EMAIL_KEY = "writeThenPublishLastAccountEmail.v1";
@@ -341,6 +365,7 @@ const els = {
   articleSizeList: $("#articleSizeList"),
   articleSizeInput: $("#articleSizeInput"),
   articleFontList: $("#articleFontList"),
+  articleBackgroundList: $("#articleBackgroundList"),
   articleCssToggle: $("#articleCssToggleBtn"),
   articleCssPanel: $("#articleCssPanel"),
   articleCssEditor: $("#articleCssEditor"),
@@ -628,6 +653,7 @@ const state = {
   articleMacCode: true,
   articleSize: DEFAULT_ARTICLE_SIZE,
   articleFontFamily: DEFAULT_ARTICLE_FONT_FAMILY,
+  articleBackground: DEFAULT_ARTICLE_BACKGROUND,
   obsidianNotePath: null,
   currentProjectId: null,
   projects: [],
@@ -773,6 +799,7 @@ function defaultFormState() {
     articleMacCode: true,
     articleSize: DEFAULT_ARTICLE_SIZE,
     articleFontFamily: DEFAULT_ARTICLE_FONT_FAMILY,
+    articleBackground: DEFAULT_ARTICLE_BACKGROUND,
     obsidianNotePath: null,
     uiTheme: "light",
     avatar: sampleAvatar,
@@ -1046,6 +1073,7 @@ function readForm() {
     articleMacCode: state.articleMacCode !== false,
     articleSize: normalizeArticleSize(state.articleSize),
     articleFontFamily: normalizeArticleFontFamily(state.articleFontFamily),
+    articleBackground: normalizeArticleBackground(state.articleBackground),
     obsidianNotePath: state.obsidianNotePath,
     uiTheme: state.uiTheme,
     avatar: state.avatar,
@@ -1130,6 +1158,7 @@ function applyForm(data) {
   state.articleMacCode = data.articleMacCode !== false;
   state.articleSize = normalizeArticleSize(data.articleSize);
   state.articleFontFamily = normalizeArticleFontFamily(data.articleFontFamily);
+  state.articleBackground = normalizeArticleBackground(data.articleBackground);
   state.obsidianNotePath = normalizeObsidianNotePath(data.obsidianNotePath);
   updateAppMode();
   updateHeaderModeButton();
@@ -1332,6 +1361,9 @@ function updateArticleControls() {
   els.articleFontList.querySelectorAll("[data-article-font-family]").forEach((button) => {
     button.classList.toggle("active", button.dataset.articleFontFamily === state.articleFontFamily);
   });
+  els.articleBackgroundList.querySelectorAll("[data-article-background]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.articleBackground === state.articleBackground);
+  });
   syncArticleCssEditor();
 }
 
@@ -1341,6 +1373,7 @@ async function setArticleOption(type, value) {
   if (type === "macCode") state.articleMacCode = Boolean(value);
   if (type === "size") state.articleSize = normalizeArticleSize(value);
   if (type === "fontFamily") state.articleFontFamily = normalizeArticleFontFamily(value);
+  if (type === "background") state.articleBackground = normalizeArticleBackground(value);
   updateArticleControls();
   // 和 markdown-nice 一样：切到自定义主题时自动打开 CSS 编辑器
   if (type === "theme" && state.articleTheme === ARTICLE_CUSTOM_THEME && els.articleCssPanel.hidden) {
@@ -1384,6 +1417,18 @@ function normalizeArticleSize(value) {
 
 function normalizeArticleFontFamily(value) {
   return Object.hasOwn(ARTICLE_FONT_STACKS, value) ? value : DEFAULT_ARTICLE_FONT_FAMILY;
+}
+
+function normalizeArticleBackground(value) {
+  return Object.hasOwn(ARTICLE_BACKGROUNDS, value) ? value : DEFAULT_ARTICLE_BACKGROUND;
+}
+
+/** 覆盖 #nice 的底色和底纹；主题写的渐变背景也一并换掉。 */
+function articleBackgroundCss(value) {
+  const background = ARTICLE_BACKGROUNDS[normalizeArticleBackground(value)];
+  if (!background) return "";
+  return `#nice { background-color: ${background.color} !important; background-image: ${background.image || "none"} !important;`
+    + ` background-size: ${background.size || "auto"} !important; background-repeat: repeat !important; }`;
 }
 
 // ---------- 长文主题：照 markdown-nice 的做法，一个主题就是一段作用于 #nice 的 CSS ----------
@@ -1526,7 +1571,7 @@ function articleThemeCss(settings) {
   const font = fontStack
     ? `#nice, #nice *:not(pre, pre *, code, code *) { font-family: ${fontStack} !important; }`
     : "";
-  return scopeArticleCss([base, basic, theme.css, code.css, font].join("\n"), scale);
+  return scopeArticleCss([base, basic, theme.css, code.css, font, articleBackgroundCss(settings.articleBackground)].join("\n"), scale);
 }
 
 function applyArticleThemeStyle(settings) {
@@ -3834,6 +3879,7 @@ function migrateStoredState(data) {
   data.articleMacCode = data.articleMacCode !== false;
   data.articleSize = normalizeArticleSize(data.articleSize);
   data.articleFontFamily = normalizeArticleFontFamily(data.articleFontFamily);
+  data.articleBackground = normalizeArticleBackground(data.articleBackground);
   // 旧版的字体、主题色已并入主题 CSS
   delete data.articleFont;
   delete data.articleColor;
@@ -11001,13 +11047,19 @@ function serializeArticleForWechat() {
 
   const section = document.createElement("section");
   const articleStyle = window.getComputedStyle(article);
+  // 选了背景主题时带上底纹，并留出内边距，免得公众号里文字贴着色块边缘。
+  const pickedBackground = ARTICLE_BACKGROUNDS[normalizeArticleBackground(state.articleBackground)];
+  const backgroundPattern = pickedBackground?.image
+    ? [`background-image:${articleStyle.backgroundImage}`, `background-size:${articleStyle.backgroundSize}`, "background-repeat:repeat"]
+    : [];
   section.setAttribute(
     "style",
     [
       "margin:0 auto",
-      "padding:0",
+      pickedBackground ? "padding:20px 16px" : "padding:0",
       `color:${articleStyle.color}`,
       `background-color:${articleStyle.backgroundColor}`,
+      ...backgroundPattern,
       `font-family:${articleStyle.fontFamily}`,
       `font-size:${articleStyle.fontSize}`,
       `line-height:${articleStyle.lineHeight}`,
@@ -14725,6 +14777,8 @@ function normalizeArticleExportColors(clonedDocument) {
   colorCanvas.height = 1;
   const colorContext = colorCanvas.getContext("2d", { willReadFrequently: true });
   if (!article || !clonedWindow || !colorContext) return;
+  // html2canvas 会把预览卡片的外阴影画到文章里面，整张长图发灰。
+  article.style.boxShadow = "none";
 
   [article, ...article.querySelectorAll("*")].forEach((element) => {
     const computed = clonedWindow.getComputedStyle(element);
@@ -14962,7 +15016,7 @@ function printDocumentTitle() {
 }
 
 const PRINT_HEADER_RIGHT = "草帽路飞";
-const PRINT_FOOTER_LEFT = "草帽路飞的AIInfra进阶训练营";
+const PRINT_FOOTER_LEFT = "@草帽路飞的AIInfra进阶训练营";
 // 页边框不能合并选择器，每个框都要单独写一遍样式。
 const PRINT_MARGIN_BOX_STYLE = 'font: 9pt Inter, -apple-system, "PingFang SC", sans-serif; color: #6b7280;';
 
@@ -14976,7 +15030,31 @@ function printSupportsMarginBoxes() {
   return typeof CSSMarginRule !== "undefined";
 }
 
-function articlePrintContent(article, title, date) {
+/** 文章背景不是纯白（主题自带或选了背景主题）时，打印要把整张纸铺满这个背景。 */
+function articleHasPrintBackground(article) {
+  const style = window.getComputedStyle(article);
+  return style.backgroundImage !== "none" || !/^rgba?\(255, 255, 255(, 1)?\)$/.test(style.backgroundColor);
+}
+
+// Chrome 的打印对话框里，@page 写了背景，页边距仍是白的；有背景时改走手动分页：
+// 纸张边距为 0，每页是一个铺满 A4 的元素，背景画在元素上。纯白文章仍用页边框，保留对话框里改纸张、边距的能力。
+function articlePrintUsesMarginBoxes(article) {
+  return printSupportsMarginBoxes() && !articleHasPrintBackground(article);
+}
+
+/** 文章的背景，画在每一页上，页边距也是这个颜色。 */
+function articlePrintBackgroundCss(article) {
+  const style = window.getComputedStyle(article);
+  return [
+    `background-color: ${style.backgroundColor}`,
+    `background-image: ${style.backgroundImage}`,
+    `background-size: ${style.backgroundSize}`,
+    `background-repeat: ${style.backgroundRepeat}`,
+  ].join("; ");
+}
+
+function articlePrintContent(article, title, date, marginBoxes) {
+  const background = articlePrintBackgroundCss(article);
   const stylesheets = [...document.querySelectorAll('link[rel="stylesheet"]')]
     .map((link) => `<link rel="stylesheet" href="${escapeHtml(link.href)}">`)
     .join("");
@@ -14984,7 +15062,7 @@ function articlePrintContent(article, title, date) {
   // 页边距由 @page 控制，正文铺满可打印区域，用户可在对话框里改纸张、边距和缩放。
   // 页眉页脚用 @page 页边框绘制，counter(pages) 由浏览器在分页后填入总页数。
   // 手动分页时纸张固定 A4、边距为 0，每页高度比纸张略矮，避免浏览器取整后多出空白页。
-  const pageCss = printSupportsMarginBoxes()
+  const pageCss = marginBoxes
     ? `
     @page {
       margin: 18mm 16mm;
@@ -14995,7 +15073,7 @@ function articlePrintContent(article, title, date) {
     }`
     : `
     @page { size: 210mm 297mm; margin: 0; }
-    .print-page { position: relative; box-sizing: border-box; width: 210mm; height: calc(297mm - 2px); padding: 18mm 16mm; overflow: hidden; break-after: page; }
+    .print-page { position: relative; box-sizing: border-box; width: 210mm; height: calc(297mm - 2px); padding: 18mm 16mm; overflow: hidden; break-after: page; ${background}; }
     .print-page:last-child { break-after: auto; }
     .print-page-head, .print-page-foot { position: absolute; left: 16mm; right: 16mm; display: flex; justify-content: space-between; gap: 8mm; ${PRINT_MARGIN_BOX_STYLE} line-height: 1.4; }
     .print-page-head { top: 7mm; }
@@ -15006,9 +15084,11 @@ function articlePrintContent(article, title, date) {
     .print-page img { max-height: 230mm; object-fit: contain; }`;
   const css = `${pageCss}
     /* styles.css 把 body 锁成一屏高并隐藏溢出，打印时要放开，否则只印出第一页。 */
-    html, body { display: block; height: auto; margin: 0; overflow: visible; background: #fff; }
-    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    /* 背景画在整页上（@page 或 .print-page），html、body 和文章本身透明，免得盖住页面背景、底纹错位。 */
+    html, body { display: block; height: auto; margin: 0; overflow: visible; background: transparent; }
+    html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .article-preview { width: auto; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: 0; box-shadow: none; }
+    html body .article-preview { background: transparent !important; }
     .article-preview video, .article-live-badge, .article-live-actions { display: none !important; }
     .article-preview img, .article-preview figure, .article-preview pre, .article-preview blockquote, .article-preview tr { break-inside: avoid; }
     .article-preview :is(h1, h2, h3, h4, h5, h6) { break-after: avoid; }
@@ -15218,8 +15298,9 @@ async function downloadPdf() {
     els.status.textContent = "正在准备打印页面...";
     const title = printDocumentTitle();
     const date = formatCardDate(new Date());
-    const paged = isArticle && !printSupportsMarginBoxes();
-    const content = isArticle ? articlePrintContent(article, title, date) : await cardPrintContent(objectUrls);
+    const marginBoxes = isArticle && articlePrintUsesMarginBoxes(article);
+    const paged = isArticle && !marginBoxes;
+    const content = isArticle ? articlePrintContent(article, title, date, marginBoxes) : await cardPrintContent(objectUrls);
     frame.setAttribute("aria-hidden", "true");
     frame.tabIndex = -1;
     frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;";
@@ -15350,6 +15431,19 @@ function bindEvents() {
   els.articleFontList.addEventListener("click", (event) => {
     const button = event.target.closest("[data-article-font-family]");
     if (button) setArticleOption("fontFamily", button.dataset.articleFontFamily);
+  });
+  els.articleBackgroundList.querySelectorAll("[data-article-background]").forEach((button) => {
+    const background = ARTICLE_BACKGROUNDS[button.dataset.articleBackground];
+    const swatch = button.querySelector(".article-bg-swatch");
+    if (!background || !swatch) return;
+    swatch.style.backgroundColor = background.color;
+    // 样块只有 28×12，底纹按比例缩小，不然一格都显示不全。
+    swatch.style.backgroundImage = background.swatchImage || background.image || "none";
+    if (background.swatchSize) swatch.style.backgroundSize = background.swatchSize;
+  });
+  els.articleBackgroundList.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-article-background]");
+    if (button) setArticleOption("background", button.dataset.articleBackground);
   });
   els.articleCssToggle.addEventListener("click", () => setArticleCssEditorOpen(els.articleCssPanel.hidden));
 
