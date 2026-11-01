@@ -2654,7 +2654,7 @@ body.export-busy {
   top: 118px;
   display: grid;
   gap: 20px;
-  width: 260px;
+  width: 280px;
   max-height: calc(100vh - 150px);
   overflow: auto;
   padding: 16px;
@@ -2662,6 +2662,11 @@ body.export-busy {
   border-radius: 8px;
   background: var(--paper);
   box-shadow: var(--shadow-soft);
+}
+
+/* 打开主题 CSS 编辑器时加宽，给代码留出一行 50 字符左右的宽度。 */
+.article-settings.editing {
+  width: 440px;
 }
 
 .article-settings[hidden] {
@@ -2673,201 +2678,232 @@ body.export-busy {
   gap: 10px;
 }
 
+.article-settings section[hidden] {
+  display: none;
+}
+
 .article-settings h3 {
   margin: 0;
   color: var(--ink);
   font-size: 14px;
 }
 
-.article-option-grid,
-.article-color-grid {
+.article-settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.article-css-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--control-text);
+  background: var(--control-bg);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.article-css-toggle svg {
+  width: 14px;
+  height: 14px;
+}
+
+.article-css-toggle[aria-expanded="true"] {
+  border-color: var(--active-border);
+  box-shadow: inset 0 0 0 1px var(--active-border);
+}
+
+.article-theme-list,
+.article-option-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
 }
 
-.article-option-grid.three {
-  grid-template-columns: repeat(3, 1fr);
+.article-size-list {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
 }
 
-.article-option,
-.article-color {
+.article-option {
+  display: grid;
+  align-content: center;
+  gap: 2px;
   min-height: 38px;
+  padding: 4px 8px;
   border: 1px solid var(--line);
   border-radius: 8px;
   color: var(--control-text);
   background: var(--control-bg);
   font-size: 13px;
   font-weight: 800;
+  line-height: 1.3;
+  text-align: center;
 }
 
-.article-option.active,
-.article-color.active {
+.article-option small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.article-option.active {
   border-color: var(--active-border);
   box-shadow: inset 0 0 0 1px var(--active-border);
 }
 
-.article-color {
-  position: relative;
-  justify-content: flex-start;
-  padding-left: 28px;
-  text-align: left;
+.article-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--control-text);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
 }
 
-.article-color::before {
-  content: "";
-  position: absolute;
-  left: 10px;
-  top: 50%;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: var(--swatch);
-  transform: translateY(-50%);
+.article-css-status {
+  color: var(--muted);
+  font-size: 12px;
 }
 
+.article-css-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.article-css-editor {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.article-css-editor .CodeMirror,
+.article-css-editor textarea {
+  display: block;
+  width: 100%;
+  height: min(56vh, 520px);
+}
+
+.article-css-editor textarea {
+  box-sizing: border-box;
+  padding: 12px;
+  border: 0;
+  resize: vertical;
+  color: #202020;
+  background: #f5f5f5;
+  font: 13px/1.7 "SFMono-Regular", Menlo, Consolas, monospace;
+}
+
+/* CodeMirror 配色取自 markdown-nice 的 style-mirror（Base16 Default Light） */
+.cm-s-style-mirror.CodeMirror {
+  padding: 8px 4px;
+  color: #202020;
+  background: #f5f5f5;
+  font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.cm-s-style-mirror div.CodeMirror-selected {
+  background: #e0e0e0;
+}
+
+.cm-s-style-mirror .CodeMirror-cursor {
+  border-left: 1px solid #505050;
+}
+
+.cm-s-style-mirror span.cm-comment {
+  color: #ac002b;
+}
+
+.cm-s-style-mirror span.cm-atom,
+.cm-s-style-mirror span.cm-number {
+  color: #aa759f;
+}
+
+.cm-s-style-mirror span.cm-property,
+.cm-s-style-mirror span.cm-attribute,
+.cm-s-style-mirror span.cm-variable {
+  color: #90a959;
+}
+
+.cm-s-style-mirror span.cm-keyword,
+.cm-s-style-mirror span.cm-tag {
+  color: #023a52;
+}
+
+.cm-s-style-mirror span.cm-string {
+  color: #e46918;
+}
+
+.cm-s-style-mirror span.cm-variable-2 {
+  color: #00695f;
+}
+
+.cm-s-style-mirror span.cm-variable-3,
+.cm-s-style-mirror span.cm-qualifier {
+  color: #2e6e8a;
+}
+
+.cm-s-style-mirror span.cm-def,
+.cm-s-style-mirror span.cm-builtin {
+  color: #d28445;
+}
+
+.cm-s-style-mirror span.cm-error {
+  color: #ac4142;
+}
+
+.CodeMirror-hints {
+  z-index: 1000;
+}
+
+/* 长文外框；正文排版全部来自主题 CSS（src/article-themes.js 和本机的 markdown-nice 主题包），
+   由 app.js 把 #nice 换成 .article-preview 后写进 #articleThemeStyle。 */
 .article-preview {
+  --article-base-size: 16px;
+  color: #1f2937;
+  background: #fff;
+}
+
+/* 多一层 .pages 压过主题里 #nice 的 padding / margin（markdown-nice 主题常写 padding: 0 10px）。 */
+.pages .article-preview {
   width: min(520px, 100%);
   min-height: 820px;
+  margin: 0;
   padding: 44px 42px 56px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  color: #1f2937;
-  background: #fff;
   box-shadow: var(--shadow-card);
-  font-family: var(--article-font, Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
-  letter-spacing: 0.02em;
-  line-height: 2;
 }
 
-.article-font-serif {
-  --article-font: Georgia, "Times New Roman", "Songti SC", SimSun, serif;
-}
-
-.article-font-mono {
-  --article-font: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-}
-
-/* 行内 {{size:N|…}} 以此为基准等比换算，见 renderArticleInlineTokens。 */
-.article-size-small {
-  --article-base-size: 15px;
-  font-size: var(--article-base-size);
-}
-
-.article-size-normal {
-  --article-base-size: 17px;
-  font-size: var(--article-base-size);
-}
-
-.article-size-large {
-  --article-base-size: 19px;
-  font-size: var(--article-base-size);
-}
-
-.article-preview h1,
-.article-preview h2,
-.article-preview h3,
-.article-preview p,
-.article-preview blockquote,
-.article-preview ul,
-.article-preview pre,
-.article-preview figure,
-.article-table-wrap {
-  margin: 0 0 24px;
-}
-
-.article-preview h1 {
-  position: relative;
-  padding-bottom: 14px;
-  color: #111827;
-  font-size: 1.45em;
-  line-height: 1.35;
-  text-align: center;
-}
-
-.article-preview h1::after {
-  content: "";
-  position: absolute;
-  left: 18%;
-  right: 18%;
-  bottom: 0;
-  height: 2px;
-  background: var(--article-accent);
-}
-
-.article-preview h2 {
-  display: table;
-  margin-top: 34px;
-  padding: 3px 8px;
-  color: var(--article-accent);
-  background: color-mix(in srgb, var(--article-accent) 14%, white);
-  font-size: 1.16em;
-  line-height: 1.45;
-}
-
-.article-preview h3 {
-  color: var(--article-accent);
-  font-size: 1.02em;
-}
-
-.article-preview p {
-  letter-spacing: inherit;
-}
-
-.article-preview strong {
-  background: color-mix(in srgb, var(--article-accent) 18%, transparent);
-  font-weight: 800;
-}
-
-.article-preview blockquote {
-  padding: 18px 20px;
-  border-left: 4px solid var(--article-accent);
-  border-radius: 8px;
-  color: #273445;
-  background: color-mix(in srgb, var(--article-accent) 10%, white);
-  font-style: italic;
-}
-
-.article-preview code {
-  padding: 2px 6px;
-  border-radius: 4px;
-  color: color-mix(in srgb, var(--article-accent) 82%, #111827);
-  background: color-mix(in srgb, var(--article-accent) 9%, white);
-  font-family: "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
-  font-size: 0.88em;
-  letter-spacing: 0;
-  overflow-wrap: anywhere;
-}
-
-/* 代码块比正文小一号，等宽字符在手机宽度里能放下一行 50 字符左右。
-   配色取 GitHub Dark；头部圆点和语言标签都是真实元素，复制到公众号后仍在。 */
-.article-preview pre {
-  overflow: hidden;
-  padding: 0;
-  border: 1px solid #30363d;
-  border-radius: 10px;
-  color: #e6edf3;
-  background: #0d1117;
-  font-family: "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
-  font-size: 0.76em;
-  line-height: 1.7;
-  letter-spacing: 0;
-  white-space: pre;
-}
-
+/* Mac 风格代码块的头部：三个圆点和语言标签都是真实元素，复制到公众号后仍在。
+   它放在 code.hljs 里面，背景和文字色跟着代码主题走。 */
 .article-preview .article-code-head {
   display: block;
-  padding: 7px 14px;
-  border-bottom: 1px solid #21262d;
-  background: #161b22;
-  font-size: 0.82em;
-  line-height: 1.6;
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1;
+  letter-spacing: 0;
   white-space: nowrap;
 }
 
 .article-preview .article-code-dots span {
   margin-right: 5px;
-  font-size: 0.95em;
+  line-height: 1;
 }
 
 .article-preview .article-code-dots span:nth-child(1) {
@@ -2883,56 +2919,14 @@ body.export-busy {
 }
 
 .article-preview .article-code-lang {
-  margin-left: 8px;
-  color: #8b949e;
+  margin-left: 4px;
   font-weight: 600;
   letter-spacing: 0.06em;
+  opacity: 0.55;
 }
 
-.article-preview pre code {
-  display: block;
-  overflow-x: auto;
-  padding: 12px 16px 14px;
-  border-radius: 0;
-  color: inherit;
-  background: transparent;
-  font-size: inherit;
-  white-space: inherit;
-  overflow-wrap: normal;
-}
-
-.article-preview .code-comment {
-  color: #8b949e;
-  font-style: italic;
-}
-
-.article-preview .code-keyword {
-  color: #ff7b72;
-}
-
-.article-preview .code-string {
-  color: #a5d6ff;
-}
-
-.article-preview .code-number,
-.article-preview .code-constant,
-.article-preview .code-property {
-  color: #79c0ff;
-}
-
-.article-preview .code-function {
-  color: #d2a8ff;
-}
-
-.article-preview .code-decorator,
-.article-preview .code-attr {
-  color: #ffa657;
-}
-
-.article-preview img {
-  display: block;
-  max-width: 100%;
-  border-radius: 8px;
+.article-preview pre.custom.mac {
+  box-shadow: rgba(0, 0, 0, 0.3) 0 2px 10px;
 }
 
 .article-live-stage {
@@ -3041,60 +3035,6 @@ body.export-busy {
 
 .article-table-wrap {
   overflow-x: auto;
-  border: 1px solid color-mix(in srgb, var(--article-accent) 26%, #d7dde5);
-  border-radius: 8px;
-}
-
-.article-preview table {
-  width: 100%;
-  min-width: 360px;
-  border-collapse: collapse;
-  font-size: 0.88em;
-  line-height: 1.55;
-}
-
-.article-preview th,
-.article-preview td {
-  padding: 10px 12px;
-  border-right: 1px solid #e4e8ee;
-  border-bottom: 1px solid #e4e8ee;
-  text-align: left;
-  vertical-align: top;
-}
-
-.article-preview th:last-child,
-.article-preview td:last-child {
-  border-right: 0;
-}
-
-.article-preview tbody tr:last-child td {
-  border-bottom: 0;
-}
-
-.article-preview th {
-  color: var(--article-accent);
-  background: color-mix(in srgb, var(--article-accent) 11%, #fff);
-  font-weight: 800;
-}
-
-.article-theme-classic {
-  --article-accent: #145da0;
-}
-
-.article-theme-elegant {
-  background: #fffdf8;
-}
-
-.article-theme-clean {
-  box-shadow: none;
-}
-
-.article-theme-colorful h2:nth-of-type(3n + 1) {
-  color: #2563eb;
-}
-
-.article-theme-colorful h2:nth-of-type(3n + 2) {
-  color: #dc2626;
 }
 
 .article-empty {
@@ -6839,7 +6779,8 @@ body.onboarding-account-step .site-footer {
     padding-top: 20px;
   }
 
-  .article-settings {
+  .article-settings,
+  .article-settings.editing {
     position: static;
     width: 100%;
     max-height: none;

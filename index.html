@@ -35,7 +35,9 @@
     <meta name="twitter:description" content="一份 Markdown，排成小红书图文卡片或公众号长文。实况照片在浏览器本地合成，生成过程不上传原视频。" />
     <meta name="twitter:image" content="https://fawen.fun/brand/og-image.png" />
     <meta name="twitter:creator" content="@iamcora13" />
-    <link rel="stylesheet" href="src/styles.css?v=20261031-copy-image" />
+    <link rel="stylesheet" href="src/styles.css?v=20261101-clearstyle" />
+    <!-- 长文主题、代码主题和 Mac 风格代码块的 CSS，由 app.js 按当前设置写入 -->
+    <style id="articleThemeStyle"></style>
   </head>
   <body class="entry-choice-pending">
     <main class="workspace">
@@ -351,6 +353,10 @@
               </div>
             </details>
 
+            <button id="clearInlineStylesBtn" class="tool-button" type="button" title="清除全文的颜色、背景色、下划线和字号标记" aria-label="清除全部自定义样式">
+              <i data-lucide="remove-formatting"></i>
+            </button>
+
             <details class="tool-menu settings-menu">
               <summary class="tool-button" title="设计设置" aria-label="设计设置">
                 <i data-lucide="sliders-horizontal"></i>
@@ -467,41 +473,40 @@
         <div class="preview-body">
           <div id="pages" class="pages"></div>
           <aside id="articleSettings" class="article-settings" aria-label="长文设置" hidden>
-            <section>
-              <h3>主题</h3>
-              <div class="article-option-grid">
-                <button type="button" class="article-option active" data-article-theme="classic">经典</button>
-                <button type="button" class="article-option" data-article-theme="elegant">优雅</button>
-                <button type="button" class="article-option" data-article-theme="clean">简洁</button>
-                <button type="button" class="article-option" data-article-theme="wechat">微信绿</button>
-                <button type="button" class="article-option" data-article-theme="colorful">多彩微信</button>
+            <section id="articleCssPanel" class="article-css-panel" hidden>
+              <div class="article-settings-head">
+                <h3>主题 CSS</h3>
+                <span id="articleCssStatus" class="article-css-status"></span>
               </div>
+              <p class="article-css-hint">样式作用于 <code>#nice</code>，修改实时生效。改内置主题前会先复制成「自定义」。</p>
+              <div id="articleCssEditor" class="article-css-editor"></div>
             </section>
             <section>
-              <h3>字体</h3>
-              <div class="article-option-grid three">
-                <button type="button" class="article-option active" data-article-font="sans">无衬线</button>
-                <button type="button" class="article-option" data-article-font="serif">衬线</button>
-                <button type="button" class="article-option" data-article-font="mono">等宽</button>
+              <div class="article-settings-head">
+                <h3>主题</h3>
+                <button id="articleCssToggleBtn" class="article-css-toggle" type="button" aria-expanded="false" aria-controls="articleCssPanel">
+                  <i data-lucide="code-xml"></i>
+                  查看主题 CSS
+                </button>
               </div>
+              <div id="articleThemeList" class="article-theme-list" role="group" aria-label="正文主题"></div>
             </section>
             <section>
               <h3>字号</h3>
-              <div class="article-option-grid">
-                <button type="button" class="article-option" data-article-size="small">更小</button>
-                <button type="button" class="article-option active" data-article-size="normal">推荐</button>
-                <button type="button" class="article-option" data-article-size="large">稍大</button>
+              <div id="articleSizeList" class="article-size-list" role="group" aria-label="字号">
+                <button type="button" class="article-option" data-article-size="small" title="主题字号的 90%">更小</button>
+                <button type="button" class="article-option active" data-article-size="normal" title="主题原本的字号">推荐</button>
+                <button type="button" class="article-option" data-article-size="large" title="主题字号的 110%">稍大</button>
+                <button type="button" class="article-option" data-article-size="xlarge" title="主题字号的 120%">更大</button>
               </div>
             </section>
             <section>
-              <h3>主题色</h3>
-              <div class="article-color-grid">
-                <button type="button" class="article-color active" data-article-color="#0f766e" style="--swatch:#0f766e">翡翠绿</button>
-                <button type="button" class="article-color" data-article-color="#2563eb" style="--swatch:#2563eb">经典蓝</button>
-                <button type="button" class="article-color" data-article-color="#ef4444" style="--swatch:#ef4444">活力橘</button>
-                <button type="button" class="article-color" data-article-color="#7c3aed" style="--swatch:#7c3aed">薰衣紫</button>
-                <button type="button" class="article-color" data-article-color="#111827" style="--swatch:#111827">石墨黑</button>
-              </div>
+              <h3>代码主题</h3>
+              <div id="articleCodeThemeList" class="article-option-grid" role="group" aria-label="代码主题"></div>
+              <label class="article-switch">
+                <input id="articleMacCodeInput" type="checkbox" checked />
+                Mac 风格代码块
+              </label>
             </section>
           </aside>
         </div>
@@ -1462,6 +1467,13 @@
       }
     </script>
     <script src="src/default-avatar.js?v=20261030-luffy"></script>
-    <script src="src/app.js?v=20261031-mode-history-sync"></script>
+    <script src="src/article-themes.js?v=20261101-clearstyle"></script>
+    <script>
+      // markdown-nice 主题包（GPL-3.0）由 scripts/import-mdnice-themes.mjs 生成，只在本机使用，线上不加载。
+      if (["localhost", "127.0.0.1", "::1", "[::1]"].includes(window.location.hostname) || window.location.protocol === "file:") {
+        document.write('<script src="src/vendor/mdnice-themes.js" onerror="this.remove()"><\/script>');
+      }
+    </script>
+    <script src="src/app.js?v=20261101-clearstyle"></script>
   </body>
 </html>

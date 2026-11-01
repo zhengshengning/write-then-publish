@@ -4,3 +4,5 @@ outputs
 .vercel
 supabase/.temp/
 .claude
+tmp
+src/vendor/mdnice-themes.js

@@ -18,7 +18,7 @@ const media = {
 const original = {
   id: 'source-qa', title: '原稿往返测试', createdAt: Date.UTC(2026, 9, 4, 4), updatedAt: Date.UTC(2026, 9, 4, 5),
   data: { content: '# 原稿往返测试\n\n**中文加粗**\n\n[[image:gif]]\n\n[[image:png]]\n\n[[image:live]]', fontSize: 32, lineHeight: 1.8,
-    headerMode: 'first', accentColor: '#e11d48', articleTheme: 'wechat', articleFont: 'serif',
+    headerMode: 'first', accentColor: '#e11d48', articleTheme: 'mdnice-rose', articleCodeTheme: 'mdnice-monokai', articleMacCode: false, articleSize: 'large',
     images: {
       gif: { name: '两帧动图.gif', portableSrcPath: 'media/001.gif', layout: { widthPercent: 75, align: 'left' } },
       png: { name: '图片.png', portableSrcPath: 'media/002.png', crop: { x: 20, y: 8, width: 100, height: 80 } },
@@ -75,7 +75,10 @@ vm.runInContext([
   assert.equal(output.filename, 'publication.zip');
   const restored = await ctx.inspectPortableZip(output.blob);
   assert.equal(restored.source.data.content, original.data.content);
-  assert.equal(restored.source.data.articleFont, 'serif');
+  assert.equal(restored.source.data.articleTheme, 'mdnice-rose');
+  assert.equal(restored.source.data.articleCodeTheme, 'mdnice-monokai');
+  assert.equal(restored.source.data.articleMacCode, false);
+  assert.equal(restored.source.data.articleSize, 'large');
   for (const [id, image] of Object.entries(original.data.images)) {
     const result = restored.source.data.images[id];
     for (const key of ['crop', 'layout', 'liveSettings']) assert.deepEqual(JSON.parse(JSON.stringify(result[key] ?? null)), image[key] ?? null);

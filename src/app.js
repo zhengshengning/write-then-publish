@@ -38,6 +38,13 @@ const PROJECTS_STORAGE_KEY = "graphicTextLayoutProjects.v1";
 const AUTHOR_PROFILE_STORAGE_KEY = "writeThenPublishAuthorProfile.v1";
 const CUSTOM_COLOR_PALETTE_STORAGE_KEY = "writeThenPublishCustomColorPalette.v1";
 const PANEL_LAYOUT_STORAGE_KEY = "writeThenPublishPanelLayout.v1";
+const ARTICLE_CUSTOM_THEME_STORAGE_KEY = "writeThenPublishArticleCustomTheme.v1";
+const DEFAULT_ARTICLE_THEME = "wechat";
+const DEFAULT_ARTICLE_CODE_THEME = "github-dark";
+const ARTICLE_CUSTOM_THEME = "custom";
+// 字号按比例缩放主题里写死的字号，任何主题都适用
+const ARTICLE_SIZE_SCALES = { small: 0.9, normal: 1, large: 1.1, xlarge: 1.2 };
+const DEFAULT_ARTICLE_SIZE = "normal";
 const ONBOARDING_STORAGE_KEY = "writeThenPublishOnboarding.v1";
 const ENTRY_MODE_SESSION_KEY = "writeThenPublishEntryMode.v1";
 const LAST_ACCOUNT_EMAIL_KEY = "writeThenPublishLastAccountEmail.v1";
@@ -316,12 +323,18 @@ const els = {
   copyFeishu: $("#copyFeishuBtn"),
   syncWechat: $("#syncWechatBtn"),
   articleSettings: $("#articleSettings"),
-  articleThemeButtons: document.querySelectorAll("[data-article-theme]"),
-  articleFontButtons: document.querySelectorAll("[data-article-font]"),
-  articleSizeButtons: document.querySelectorAll("[data-article-size]"),
-  articleColorButtons: document.querySelectorAll("[data-article-color]"),
+  articleThemeList: $("#articleThemeList"),
+  articleCodeThemeList: $("#articleCodeThemeList"),
+  articleMacCode: $("#articleMacCodeInput"),
+  articleSizeList: $("#articleSizeList"),
+  articleCssToggle: $("#articleCssToggleBtn"),
+  articleCssPanel: $("#articleCssPanel"),
+  articleCssEditor: $("#articleCssEditor"),
+  articleCssStatus: $("#articleCssStatus"),
+  articleThemeStyle: $("#articleThemeStyle"),
   contentImage: $("#contentImageInput"),
   copyPlainText: $("#copyPlainTextBtn"),
+  clearInlineStyles: $("#clearInlineStylesBtn"),
   emojiMenu: $("#emojiMenu"),
   emojiGrid: $("#emojiGrid"),
   contentVideo: $("#contentVideoInput"),
@@ -596,10 +609,10 @@ const state = {
   uiTheme: "light",
   headerMode: "every",
   appMode: "cards",
-  articleTheme: "wechat",
-  articleFont: "sans",
-  articleSize: "normal",
-  articleColor: "#0f766e",
+  articleTheme: DEFAULT_ARTICLE_THEME,
+  articleCodeTheme: DEFAULT_ARTICLE_CODE_THEME,
+  articleMacCode: true,
+  articleSize: DEFAULT_ARTICLE_SIZE,
   obsidianNotePath: null,
   currentProjectId: null,
   projects: [],
@@ -740,10 +753,10 @@ function defaultFormState() {
     imageHeight: String(CARD_MAX_IMAGE_HEIGHT),
     headerMode: "every",
     appMode: "cards",
-    articleTheme: "wechat",
-    articleFont: "sans",
-    articleSize: "normal",
-    articleColor: "#0f766e",
+    articleTheme: DEFAULT_ARTICLE_THEME,
+    articleCodeTheme: DEFAULT_ARTICLE_CODE_THEME,
+    articleMacCode: true,
+    articleSize: DEFAULT_ARTICLE_SIZE,
     obsidianNotePath: null,
     uiTheme: "light",
     avatar: sampleAvatar,
@@ -861,7 +874,7 @@ const articleGuideText = `# 长文说明书
 1. 新建原稿后点击“转长文”。
 2. 在左侧输入 Markdown 内容。
 3. 在右侧查看长文预览。
-4. 调整主题、字体、字号和主题色。
+4. 在右侧选正文主题、字号和代码主题；点「查看主题 CSS」可以改样式，改动会存成「自定义」主题。
 5. 需要拆成图文时，点击“转图文”。
 
 ## 推荐结构
@@ -1013,9 +1026,9 @@ function readForm() {
     headerMode: state.headerMode === "first" ? "first" : "every",
     appMode: state.appMode === "article" ? "article" : "cards",
     articleTheme: normalizeArticleTheme(state.articleTheme),
-    articleFont: normalizeArticleFont(state.articleFont),
+    articleCodeTheme: normalizeArticleCodeTheme(state.articleCodeTheme),
+    articleMacCode: state.articleMacCode !== false,
     articleSize: normalizeArticleSize(state.articleSize),
-    articleColor: normalizeArticleColor(state.articleColor),
     obsidianNotePath: state.obsidianNotePath,
     uiTheme: state.uiTheme,
     avatar: state.avatar,
@@ -1096,9 +1109,9 @@ function applyForm(data) {
   state.headerMode = data.headerMode === "first" ? "first" : "every";
   state.appMode = data.appMode === "article" ? "article" : "cards";
   state.articleTheme = normalizeArticleTheme(data.articleTheme);
-  state.articleFont = normalizeArticleFont(data.articleFont);
+  state.articleCodeTheme = normalizeArticleCodeTheme(data.articleCodeTheme);
+  state.articleMacCode = data.articleMacCode !== false;
   state.articleSize = normalizeArticleSize(data.articleSize);
-  state.articleColor = normalizeArticleColor(data.articleColor);
   state.obsidianNotePath = normalizeObsidianNotePath(data.obsidianNotePath);
   updateAppMode();
   updateHeaderModeButton();
@@ -1284,18 +1297,31 @@ async function openLatestProjectOfType(mode) {
 }
 
 function updateArticleControls() {
-  els.articleThemeButtons.forEach((button) => button.classList.toggle("active", button.dataset.articleTheme === state.articleTheme));
-  els.articleFontButtons.forEach((button) => button.classList.toggle("active", button.dataset.articleFont === state.articleFont));
-  els.articleSizeButtons.forEach((button) => button.classList.toggle("active", button.dataset.articleSize === state.articleSize));
-  els.articleColorButtons.forEach((button) => button.classList.toggle("active", button.dataset.articleColor?.toLowerCase() === state.articleColor.toLowerCase()));
+  const themeId = resolveArticleTheme(state.articleTheme).id;
+  const codeThemeId = resolveArticleCodeTheme(state.articleCodeTheme).id;
+  els.articleThemeList.querySelectorAll("[data-article-theme]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.articleTheme === themeId);
+  });
+  els.articleCodeThemeList.querySelectorAll("[data-article-code-theme]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.articleCodeTheme === codeThemeId);
+  });
+  els.articleMacCode.checked = state.articleMacCode !== false;
+  els.articleSizeList.querySelectorAll("[data-article-size]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.articleSize === state.articleSize);
+  });
+  syncArticleCssEditor();
 }
 
 async function setArticleOption(type, value) {
   if (type === "theme") state.articleTheme = normalizeArticleTheme(value);
-  if (type === "font") state.articleFont = normalizeArticleFont(value);
+  if (type === "codeTheme") state.articleCodeTheme = normalizeArticleCodeTheme(value);
+  if (type === "macCode") state.articleMacCode = Boolean(value);
   if (type === "size") state.articleSize = normalizeArticleSize(value);
-  if (type === "color") state.articleColor = normalizeArticleColor(value);
   updateArticleControls();
+  // 和 markdown-nice 一样：切到自定义主题时自动打开 CSS 编辑器
+  if (type === "theme" && state.articleTheme === ARTICLE_CUSTOM_THEME && els.articleCssPanel.hidden) {
+    setArticleCssEditorOpen(true);
+  }
   await render();
 }
 
@@ -1315,20 +1341,309 @@ function isLocalHostSite() {
     || window.location.protocol === "file:";
 }
 
+// 主题 id 只校验格式：本机才有的 markdown-nice 主题在线上找不到，渲染时由 resolveArticleTheme 回落到默认主题，
+// 草稿里记下的选择不改，回到本机打开时仍是原来的主题。
 function normalizeArticleTheme(value) {
-  return ["classic", "elegant", "clean", "wechat", "colorful"].includes(value) ? value : "wechat";
+  return /^[\w-]{1,64}$/.test(String(value || "")) ? String(value) : DEFAULT_ARTICLE_THEME;
 }
 
-function normalizeArticleFont(value) {
-  return ["sans", "serif", "mono"].includes(value) ? value : "sans";
+function normalizeArticleCodeTheme(value) {
+  return /^[\w-]{1,64}$/.test(String(value || "")) ? String(value) : DEFAULT_ARTICLE_CODE_THEME;
 }
 
 function normalizeArticleSize(value) {
-  return ["small", "normal", "large"].includes(value) ? value : "normal";
+  return Object.hasOwn(ARTICLE_SIZE_SCALES, value) ? value : DEFAULT_ARTICLE_SIZE;
 }
 
-function normalizeArticleColor(value) {
-  return /^#[0-9a-fA-F]{6}$/.test(String(value || "")) ? value : "#0f766e";
+// ---------- 长文主题：照 markdown-nice 的做法，一个主题就是一段作用于 #nice 的 CSS ----------
+// 内置主题在 src/article-themes.js；本机另有 markdown-nice 主题包（GPL-3.0，由 scripts/import-mdnice-themes.mjs
+// 生成，线上不加载），id 加 mdnice- 前缀，渲染时在主题下面垫一层它的 basic 样式，和 markdown-nice 一致。
+const CODEMIRROR_CDN = "https://cdn.jsdelivr.net/npm/codemirror@5.65.21";
+let articleThemeLibraryCache = null;
+let articleCustomTheme = null;
+let scopedArticleCssCache = { source: null, scale: 1, css: "" };
+let articleCssEditor = null;
+let articleCssEditorLoading = null;
+let articleCssForkPending = false;
+
+function articleThemeLibrary() {
+  if (articleThemeLibraryCache) return articleThemeLibraryCache;
+  const own = window.WriteThenPublishArticleThemes || { markdown: [], code: [] };
+  const mdnice = window.WriteThenPublishMdniceThemes;
+  const prefixed = (themes = [], extra = {}) => themes.map((theme) => ({ ...theme, id: `mdnice-${theme.id}`, ...extra }));
+  articleThemeLibraryCache = {
+    markdown: [...own.markdown, ...prefixed(mdnice?.markdown, { basic: true })],
+    code: [...own.code, ...prefixed(mdnice?.code)],
+    basic: mdnice?.basic || "",
+    customTemplate: mdnice?.customTemplate || "",
+  };
+  return articleThemeLibraryCache;
+}
+
+/** 自定义主题存在本机（和 markdown-nice 一样不随草稿走）；basic 表示是否垫 markdown-nice 的基础样式。 */
+function articleCustomThemeValue() {
+  if (articleCustomTheme) return articleCustomTheme;
+  try {
+    const stored = JSON.parse(localStorage.getItem(ARTICLE_CUSTOM_THEME_STORAGE_KEY) || "null");
+    if (typeof stored?.css === "string") articleCustomTheme = { css: stored.css, basic: Boolean(stored.basic) };
+  } catch {}
+  if (!articleCustomTheme) {
+    const library = articleThemeLibrary();
+    articleCustomTheme = library.customTemplate
+      ? { css: library.customTemplate, basic: true }
+      : { css: `/*自定义样式，实时生效*/\n\n${resolveArticleTheme(DEFAULT_ARTICLE_THEME).css}`, basic: false };
+  }
+  return articleCustomTheme;
+}
+
+function writeArticleCustomTheme() {
+  try {
+    localStorage.setItem(ARTICLE_CUSTOM_THEME_STORAGE_KEY, JSON.stringify(articleCustomThemeValue()));
+    els.articleCssStatus.textContent = "已保存到本机";
+  } catch {
+    els.articleCssStatus.textContent = "保存失败：浏览器存储已满";
+  }
+}
+
+const saveArticleCustomThemeSoon = debounce(writeArticleCustomTheme, 400);
+
+function resolveArticleTheme(id) {
+  if (id === ARTICLE_CUSTOM_THEME) return { id, name: "自定义", ...articleCustomThemeValue() };
+  const { markdown } = articleThemeLibrary();
+  return markdown.find((theme) => theme.id === id)
+    || markdown.find((theme) => theme.id === DEFAULT_ARTICLE_THEME)
+    || { id: DEFAULT_ARTICLE_THEME, name: "默认", css: "" };
+}
+
+function resolveArticleCodeTheme(id) {
+  const { code } = articleThemeLibrary();
+  return code.find((theme) => theme.id === id)
+    || code.find((theme) => theme.id === DEFAULT_ARTICLE_CODE_THEME)
+    || { id: DEFAULT_ARTICLE_CODE_THEME, name: "默认", css: "" };
+}
+
+function splitSelectorList(selector) {
+  const parts = [];
+  let depth = 0;
+  let current = "";
+  for (const char of selector) {
+    if (char === "(" || char === "[") depth += 1;
+    if (char === ")" || char === "]") depth -= 1;
+    if (char === "," && !depth) {
+      parts.push(current.trim());
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  parts.push(current.trim());
+  return parts.filter(Boolean);
+}
+
+// #nice 换成 .article-preview；代码主题里 .hljs 这类不带 #nice 的选择器补上 .article-preview 前缀，不影响页面其他地方。
+function scopeArticleSelector(selector) {
+  return splitSelectorList(selector)
+    .map((part) => (/#nice(?![\w-])/.test(part) ? part.replace(/#nice(?![\w-])/g, ".article-preview") : `.article-preview ${part}`))
+    .join(", ");
+}
+
+// 主题里写死的字号和行高（px、rem、var() 等）乘上比例；em、%、无单位的跟着父元素走，不用改。
+function scaleArticleLength(value, scale) {
+  if (!value || !/\d|var\(/.test(value) || !/px|rem|pt|var\(/i.test(value)) return value;
+  return `calc(${value} * ${scale})`;
+}
+
+function scaleArticleRuleSizes(style, scale) {
+  ["font-size", "line-height"].forEach((property) => {
+    const value = style.getPropertyValue(property);
+    const scaled = scaleArticleLength(value, scale);
+    if (scaled !== value) style.setProperty(property, scaled, style.getPropertyPriority(property));
+  });
+}
+
+function scopeArticleCss(css, scale = 1) {
+  if (scopedArticleCssCache.source === css && scopedArticleCssCache.scale === scale) return scopedArticleCssCache.css;
+  let scoped;
+  try {
+    // 交给浏览器解析，@media 里的规则也能改到；写错的声明会被丢掉，不影响其余样式。
+    const sheet = new CSSStyleSheet();
+    sheet.replaceSync(css);
+    const visit = (rules) => Array.from(rules, (rule) => {
+      if (rule instanceof CSSStyleRule) {
+        rule.selectorText = scopeArticleSelector(rule.selectorText);
+        if (scale !== 1) scaleArticleRuleSizes(rule.style, scale);
+      } else if (rule.cssRules) visit(rule.cssRules);
+      return rule.cssText;
+    });
+    scoped = visit(sheet.cssRules).join("\n");
+  } catch {
+    scoped = css.replace(/#nice(?![\w-])/g, ".article-preview");
+  }
+  scopedArticleCssCache = { source: css, scale, css: scoped };
+  return scoped;
+}
+
+function articleThemeCss(settings) {
+  const theme = resolveArticleTheme(settings.articleTheme);
+  const code = resolveArticleCodeTheme(settings.articleCodeTheme);
+  const basic = theme.basic ? articleThemeLibrary().basic : "";
+  // 主题没写正文字号时按 16px 算，这样字号档位对所有主题都起作用
+  const base = "#nice { font-size: 16px; }";
+  const scale = ARTICLE_SIZE_SCALES[normalizeArticleSize(settings.articleSize)];
+  return scopeArticleCss([base, basic, theme.css, code.css].join("\n"), scale);
+}
+
+function applyArticleThemeStyle(settings) {
+  const css = articleThemeCss(settings);
+  if (els.articleThemeStyle.textContent !== css) els.articleThemeStyle.textContent = css;
+}
+
+function renderArticleThemeOptions() {
+  const { markdown, code } = articleThemeLibrary();
+  const option = (attribute, theme) =>
+    `<button type="button" class="article-option" ${attribute}="${escapeAttribute(theme.id)}"` +
+    ` title="${escapeAttribute(theme.author ? `${theme.name} · ${theme.author}` : theme.name)}">` +
+    `<span>${escapeHtml(theme.name)}</span>${theme.author ? `<small>${escapeHtml(theme.author)}</small>` : ""}</button>`;
+  els.articleThemeList.innerHTML = [...markdown, { id: ARTICLE_CUSTOM_THEME, name: "自定义", author: "主题 CSS" }]
+    .map((theme) => option("data-article-theme", theme))
+    .join("");
+  els.articleCodeThemeList.innerHTML = code.map((theme) => option("data-article-code-theme", theme)).join("");
+}
+
+// ---------- 主题 CSS 编辑器：CodeMirror 5（sublime 键位、CSS 补全、自动补括号），用到时才从 CDN 加载 ----------
+function loadArticleEditorAsset(url) {
+  return new Promise((resolve, reject) => {
+    const element = url.endsWith(".css")
+      ? Object.assign(document.createElement("link"), { rel: "stylesheet", href: url })
+      : Object.assign(document.createElement("script"), { src: url, async: false });
+    element.onload = resolve;
+    element.onerror = () => reject(new Error(`加载失败：${url}`));
+    document.head.append(element);
+  });
+}
+
+function createArticleCssEditor() {
+  articleCssEditorLoading ||= (async () => {
+    try {
+      if (!window.CodeMirror) {
+        await Promise.all([
+          loadArticleEditorAsset(`${CODEMIRROR_CDN}/lib/codemirror.min.css`),
+          loadArticleEditorAsset(`${CODEMIRROR_CDN}/addon/hint/show-hint.min.css`),
+          loadArticleEditorAsset(`${CODEMIRROR_CDN}/lib/codemirror.min.js`),
+        ]);
+        await Promise.all(
+          ["mode/css/css", "keymap/sublime", "addon/edit/closebrackets", "addon/hint/show-hint", "addon/hint/css-hint"]
+            .map((path) => loadArticleEditorAsset(`${CODEMIRROR_CDN}/${path}.min.js`)),
+        );
+      }
+      return codeMirrorArticleCssEditor();
+    } catch (error) {
+      console.warn("CodeMirror 加载失败，改用纯文本框", error);
+      return textareaArticleCssEditor();
+    }
+  })();
+  return articleCssEditorLoading;
+}
+
+function codeMirrorArticleCssEditor() {
+  const editor = window.CodeMirror(els.articleCssEditor, {
+    theme: "style-mirror",
+    keyMap: "sublime",
+    mode: "css",
+    lineWrapping: true,
+    lineNumbers: false,
+    autoCloseBrackets: true,
+    tabSize: 2,
+  });
+  editor.on("beforeChange", (_, change) => {
+    if (change.origin === "setValue" || articleCssEditable()) return;
+    change.cancel();
+    requestArticleCssFork();
+  });
+  editor.on("changes", (_, changes) => {
+    if (changes.some((change) => change.origin !== "setValue")) handleArticleCssInput(editor.getValue());
+  });
+  editor.on("keyup", (_, event) => {
+    if (/^[a-z-]$/i.test(event.key) && !editor.state.completionActive) editor.showHint({ completeSingle: false });
+  });
+  return {
+    setValue(value) {
+      if (editor.getValue() === value) return;
+      editor.setValue(value);
+      // 换主题后不能撤销回上一个主题的 CSS
+      editor.clearHistory();
+    },
+    refresh: () => editor.refresh(),
+  };
+}
+
+function textareaArticleCssEditor() {
+  const textarea = document.createElement("textarea");
+  textarea.spellcheck = false;
+  textarea.setAttribute("aria-label", "主题 CSS");
+  textarea.addEventListener("beforeinput", (event) => {
+    if (articleCssEditable()) return;
+    event.preventDefault();
+    requestArticleCssFork();
+  });
+  textarea.addEventListener("input", () => handleArticleCssInput(textarea.value));
+  els.articleCssEditor.append(textarea);
+  return {
+    setValue(value) {
+      if (textarea.value !== value) textarea.value = value;
+    },
+    refresh() {},
+  };
+}
+
+function articleCssEditable() {
+  return state.articleTheme === ARTICLE_CUSTOM_THEME;
+}
+
+// 和 markdown-nice 一样：内置主题不直接改，确认后把它复制成自定义主题再编辑。
+function requestArticleCssFork() {
+  if (articleCssForkPending) return;
+  articleCssForkPending = true;
+  // 等编辑器这次输入处理完再弹窗
+  window.setTimeout(async () => {
+    const theme = resolveArticleTheme(state.articleTheme);
+    const confirmed = window.confirm(`要基于「${theme.name}」修改吗？\n确定后会把它的样式复制成「自定义」主题，原来的自定义样式会被覆盖。`);
+    articleCssForkPending = false;
+    if (!confirmed) return;
+    articleCustomTheme = { css: `/*自定义样式，实时生效*/\n\n${theme.css}`, basic: Boolean(theme.basic) };
+    writeArticleCustomTheme();
+    await setArticleOption("theme", ARTICLE_CUSTOM_THEME);
+  }, 0);
+}
+
+function handleArticleCssInput(css) {
+  if (!articleCssEditable()) return;
+  articleCustomTheme = { ...articleCustomThemeValue(), css };
+  els.articleCssStatus.textContent = "保存中…";
+  saveArticleCustomThemeSoon();
+  // 只换样式，不重新渲染正文
+  applyArticleThemeStyle(state);
+}
+
+async function setArticleCssEditorOpen(open) {
+  els.articleCssPanel.hidden = !open;
+  els.articleSettings.classList.toggle("editing", open);
+  els.articleCssToggle.setAttribute("aria-expanded", String(open));
+  if (!open) return;
+  if (!articleCssEditor) els.articleCssStatus.textContent = "加载编辑器…";
+  articleCssEditor = await createArticleCssEditor();
+  syncArticleCssEditor();
+  articleCssEditor.refresh();
+}
+
+/** 编辑器里显示当前主题的原始 CSS（#nice 写法）。 */
+function syncArticleCssEditor() {
+  if (!articleCssEditor || els.articleCssPanel.hidden) return;
+  const theme = resolveArticleTheme(state.articleTheme);
+  const changed = articleCssEditor.theme !== theme.id;
+  articleCssEditor.theme = theme.id;
+  articleCssEditor.setValue(theme.css);
+  if (changed) els.articleCssStatus.textContent = theme.id === ARTICLE_CUSTOM_THEME ? "修改自动保存" : theme.name;
 }
 
 function clamp(value, min, max) {
@@ -3479,9 +3794,12 @@ function migrateStoredState(data) {
   data.headerMode = data.headerMode === "first" ? "first" : "every";
   data.appMode = data.appMode === "article" ? "article" : "cards";
   data.articleTheme = normalizeArticleTheme(data.articleTheme);
-  data.articleFont = normalizeArticleFont(data.articleFont);
+  data.articleCodeTheme = normalizeArticleCodeTheme(data.articleCodeTheme);
+  data.articleMacCode = data.articleMacCode !== false;
   data.articleSize = normalizeArticleSize(data.articleSize);
-  data.articleColor = normalizeArticleColor(data.articleColor);
+  // 字体、主题色已并入主题 CSS
+  delete data.articleFont;
+  delete data.articleColor;
   data.images = normalizeImagesForContent(data.content, data.images);
   return data;
 }
@@ -5251,6 +5569,28 @@ function flattenMarkerKind(text, marker) {
     i += 1;
   }
   return out;
+}
+
+const INLINE_STYLE_MARKERS = ["color", "bg", "underline", "size"];
+
+/** 去掉全文所有 {{color/bg/underline/size:…|…}} 标记，只留里面的文字；可撤销。 */
+async function clearAllInlineStyles() {
+  const textarea = els.content;
+  const value = textarea.value;
+  const nextValue = INLINE_STYLE_MARKERS.reduce((text, marker) => flattenMarkerKind(text, marker), value);
+  if (nextValue === value) {
+    els.status.textContent = "正文里没有自定义样式";
+    return;
+  }
+  const viewport = captureTextareaViewport(textarea);
+  commitTextHistory();
+  const caret = Math.min(textarea.selectionStart, nextValue.length);
+  textarea.value = nextValue;
+  restoreTextareaSelection(textarea, caret, caret, viewport);
+  commitTextHistory();
+  // 渲染会改写状态栏，渲染完再提示
+  await render();
+  els.status.textContent = "已清除全部颜色、背景色、下划线和字号，可按 Ctrl/⌘+Z 撤销";
 }
 
 function countStarsBefore(value, position, limit = 0) {
@@ -9861,12 +10201,12 @@ function renderArticlePreview(settings) {
   els.pages.className = "pages article-mode";
   els.articleSettings.hidden = false;
 
+  applyArticleThemeStyle(settings);
   const article = document.createElement("article");
-  article.className = `article-preview article-theme-${settings.articleTheme} article-font-${settings.articleFont} article-size-${settings.articleSize}`;
-  article.style.setProperty("--article-accent", settings.articleColor);
+  article.className = "article-preview";
   article.style.setProperty("--article-underline-gap", `${UNDERLINE_GAP}px`);
   article.style.setProperty("--card-font-size", String(settings.fontSize || DEFAULT_CARD_FONT_SIZE));
-  article.innerHTML = markdownToArticleHtml(settings.content, settings.images);
+  article.innerHTML = markdownToArticleHtml(settings.content, settings.images, settings);
   hydrateArticleLiveMedia(article, settings.images);
   els.pages.append(article);
 
@@ -9877,7 +10217,9 @@ function renderArticlePreview(settings) {
   if (window.lucide) window.lucide.createIcons();
 }
 
-function markdownToArticleHtml(markdown, images = {}) {
+// 输出结构和 markdown-nice 一致，它的主题才能直接套用：标题里有 .prefix/.content/.suffix 三个 span，
+// 列表项包一层 section，代码块是 pre.custom > code.hljs。
+function markdownToArticleHtml(markdown, images = {}, { articleMacCode = true } = {}) {
   const normalized = String(markdown || "").replace(/\r\n/g, "\n");
   const lines = normalized.split("\n");
   const lineOffsets = [];
@@ -9907,18 +10249,18 @@ function markdownToArticleHtml(markdown, images = {}) {
   };
   const flushList = () => {
     if (!list.length) return;
-    html.push(`<ul>${list.map((item) => `<li>${renderSourceRange(item.start, item.end)}</li>`).join("")}</ul>`);
+    html.push(`<ul>${list.map((item) => `<li><section>${renderSourceRange(item.start, item.end)}</section></li>`).join("")}</ul>`);
     list = [];
   };
   // 连续的 > 行合成一个 blockquote，行与行之间保留换行
   const flushQuote = () => {
     if (!quote.length) return;
-    html.push(`<blockquote>${quote.map((item) => renderSourceRange(item.start, item.end)).join("<br>")}</blockquote>`);
+    html.push(`<blockquote><p>${quote.map((item) => renderSourceRange(item.start, item.end)).join("<br>")}</p></blockquote>`);
     quote = [];
   };
   const flushCode = () => {
     if (!code.length) return;
-    html.push(renderArticleCodeBlock(code.join("\n"), codeLang));
+    html.push(renderArticleCodeBlock(code.join("\n"), codeLang, articleMacCode));
     code = [];
   };
 
@@ -9994,9 +10336,12 @@ function markdownToArticleHtml(markdown, images = {}) {
     if (heading) {
       flushParagraph();
       flushList();
-      const level = Math.min(3, heading[1].length);
+      const level = heading[1].length;
       const contentStart = trimmedStart + heading[0].length - heading[2].length;
-      html.push(`<h${level}>${renderSourceRange(contentStart, trimmedEnd)}</h${level}>`);
+      html.push(
+        `<h${level}><span class="prefix"></span><span class="content">${renderSourceRange(contentStart, trimmedEnd)}</span>` +
+        `<span class="suffix"></span></h${level}>`,
+      );
       continue;
     }
 
@@ -10120,6 +10465,19 @@ function articleCodePattern(name) {
   return articleCodePatterns.get(name);
 }
 
+// 轻量着色的结果映射到 highlight.js 的类名，markdown-nice 的代码主题可以直接用。
+const ARTICLE_CODE_HLJS_CLASSES = {
+  comment: "hljs-comment",
+  string: "hljs-string",
+  number: "hljs-number",
+  keyword: "hljs-keyword",
+  constant: "hljs-literal",
+  function: "hljs-title",
+  property: "hljs-attr",
+  decorator: "hljs-meta",
+  attr: "hljs-variable",
+};
+
 // 轻量着色：只区分注释、字符串、数字、关键字、常量和函数名，够读代码用，不追求完整语法。
 function highlightArticleCode(source, lang) {
   const name = ARTICLE_CODE_SPECS[lang] ? lang : ARTICLE_CODE_ALIASES[lang];
@@ -10144,20 +10502,22 @@ function highlightArticleCode(source, lang) {
       else if (constants.has(key)) kind = "constant";
       else if (/^\s*\(/.test(source.slice(last, last + 8))) kind = "function";
     }
-    html += kind ? `<span class="code-${kind}">${escapeHtml(text)}</span>` : escapeHtml(text);
+    html += kind ? `<span class="${ARTICLE_CODE_HLJS_CLASSES[kind]}">${escapeHtml(text)}</span>` : escapeHtml(text);
   }
   return html + escapeHtml(source.slice(last));
 }
 
-function renderArticleCodeBlock(source, lang) {
+function renderArticleCodeBlock(source, lang, mac = true) {
   const name = ARTICLE_CODE_SPECS[lang] ? lang : ARTICLE_CODE_ALIASES[lang];
   const label = ARTICLE_CODE_LABELS[lang] || ARTICLE_CODE_SPECS[name]?.label || (["text", "txt", "plain", "plaintext"].includes(lang) ? "" : lang);
   const code = source.replace(/\t/g, "    ");
-  // 头部用真实元素而不是 ::before，复制到公众号时才能带上内联样式。
-  const head =
-    `<span class="article-code-head"><span class="article-code-dots"><span>●</span><span>●</span><span>●</span></span>` +
-    `${label ? `<span class="article-code-lang">${escapeHtml(label)}</span>` : ""}</span>`;
-  return `<pre class="article-code">${head}<code>${highlightArticleCode(code, lang)}</code></pre>`;
+  // Mac 风格的头部用真实元素而不是 ::before，复制到公众号时才能带上内联样式；
+  // 放在 code.hljs 里面，背景色跟着代码主题走。
+  const head = mac
+    ? `<span class="article-code-head"><span class="article-code-dots"><span>●</span><span>●</span><span>●</span></span>` +
+      `${label ? `<span class="article-code-lang">${escapeHtml(label)}</span>` : ""}</span>`
+    : "";
+  return `<pre class="custom${mac ? " mac" : ""}"><code class="hljs">${head}${highlightArticleCode(code, lang)}</code></pre>`;
 }
 
 function renderArticleInline(text) {
@@ -10171,7 +10531,7 @@ function renderArticleInlineTokens(tokens) {
       if (token.bold) inner = `<strong>${inner}</strong>`;
       if (token.italic) inner = `<em>${inner}</em>`;
       if (token.link) {
-        inner = `<a href="${escapeAttribute(token.link)}" style="color: inherit; text-decoration: none;">${inner}</a>`;
+        inner = `<a href="${escapeAttribute(token.link)}">${inner}</a>`;
       }
 
       const styles = [];
@@ -10384,19 +10744,78 @@ const WECHAT_STYLE_PROPERTIES = [
   "word-break",
 ];
 
-function copyComputedWechatStyles(source, target) {
-  const computed = window.getComputedStyle(source);
+// 这些属性多数元素上都是默认值，只在主题真的写了时才带上，免得每个元素多一串样式。
+const WECHAT_OPTIONAL_PROPERTIES = {
+  "background-image": "none",
+  "background-position": "0% 0%",
+  "background-repeat": "repeat",
+  "background-size": "auto",
+  "box-shadow": "none",
+  opacity: "1",
+  "text-indent": "0px",
+  "text-shadow": "none",
+};
+// 宽高取主题里写的原值（如 64%）：计算样式只有像素，换到手机宽度会不对。
+const WECHAT_DECLARED_PROPERTIES = ["width", "height", "min-width", "min-height"];
+const WECHAT_VOID_TAGS = new Set(["IMG", "BR", "HR", "INPUT", "VIDEO"]);
+
+/** 主题里写了宽高的规则，按选择器拆开，伪元素单独记下。 */
+function wechatDeclaredRules() {
+  const rules = [];
+  const visit = (list) => Array.from(list || []).forEach((rule) => {
+    if (!(rule instanceof CSSStyleRule)) return visit(rule.cssRules);
+    const styles = WECHAT_DECLARED_PROPERTIES
+      .map((property) => [property, rule.style.getPropertyValue(property)])
+      .filter(([, value]) => value && !value.includes("var("));
+    if (!styles.length) return;
+    const selectors = splitSelectorList(rule.selectorText).map((selector) => {
+      const pseudo = selector.match(/::?(before|after)$/i);
+      return { base: pseudo ? selector.slice(0, pseudo.index) : selector, pseudo: pseudo?.[1].toLowerCase() || "" };
+    });
+    rules.push({ selectors, styles });
+  });
+  try {
+    visit(els.articleThemeStyle.sheet?.cssRules);
+  } catch {}
+  return rules;
+}
+
+function declaredWechatStyles(rules, element, pseudo = "") {
+  const styles = [];
+  rules.forEach((rule) => {
+    const matched = rule.selectors.some((selector) => {
+      if (selector.pseudo !== pseudo) return false;
+      try {
+        return element.matches(selector.base || "*");
+      } catch {
+        return false;
+      }
+    });
+    if (matched) rule.styles.forEach(([property, value]) => styles.push(`${property}:${value}`));
+  });
+  return styles;
+}
+
+function wechatInlineStyles(computed) {
   const styles = WECHAT_STYLE_PROPERTIES.map((property) => {
     const value = computed.getPropertyValue(property);
     return value ? `${property}:${value}` : "";
   }).filter(Boolean);
+  const hasImage = computed.getPropertyValue("background-image") !== "none";
+  Object.entries(WECHAT_OPTIONAL_PROPERTIES).forEach(([property, initial]) => {
+    if (property.startsWith("background-") && property !== "background-image" && !hasImage) return;
+    const value = computed.getPropertyValue(property);
+    if (value && value !== initial) styles.push(`${property}:${value}`);
+  });
+  return styles;
+}
+
+function copyComputedWechatStyles(source, target, rules) {
+  const styles = [...wechatInlineStyles(window.getComputedStyle(source)), ...declaredWechatStyles(rules, source)];
   if (source.tagName === "IMG") {
     styles.push("display:block", "max-width:100%", "height:auto");
     target.removeAttribute("width");
     target.removeAttribute("height");
-  }
-  if (source.tagName === "H1") {
-    styles.push(`border-bottom:2px solid ${readForm().articleColor}`);
   }
   target.setAttribute("style", styles.join(";"));
   target.removeAttribute("class");
@@ -10422,6 +10841,27 @@ function preserveWechatCodeWhitespace(code) {
   }
 }
 
+/** 伪元素的 content 只认字符串（含 "" 这种纯装饰的空内容）；counter()、attr() 之类返回 null，不复制。 */
+function wechatPseudoText(content) {
+  if (!content || !content.startsWith('"')) return null;
+  const strings = [...content.matchAll(/"((?:\\.|[^"\\])*)"/g)].map(([, text]) =>
+    text.replace(/\\([0-9a-fA-F]{1,6}\s?|[\s\S])/g, (_, escape) =>
+      /^[0-9a-fA-F]/.test(escape) ? String.fromCodePoint(parseInt(escape, 16)) : escape),
+  );
+  return strings.join("");
+}
+
+/** 公众号不认 ::before / ::after，把它们换成带同样样式的 span（markdown-nice 用 juice 的 inlinePseudoElements 做同一件事）。 */
+function wechatPseudoElement(source, pseudo, rules) {
+  const computed = window.getComputedStyle(source, `::${pseudo}`);
+  const text = wechatPseudoText(computed.content);
+  if (text === null || computed.display === "none") return null;
+  const span = document.createElement("span");
+  span.textContent = text;
+  span.setAttribute("style", [...wechatInlineStyles(computed), ...declaredWechatStyles(rules, source, pseudo)].join(";"));
+  return span;
+}
+
 function serializeArticleForWechat() {
   let article = els.pages.querySelector(".article-preview");
   if (!article || state.appMode !== "article") {
@@ -10434,12 +10874,23 @@ function serializeArticleForWechat() {
     throw new Error("长文内容为空，请先输入正文。");
   }
 
+  const rules = wechatDeclaredRules();
   const clone = article.cloneNode(true);
   const sourceNodes = [article, ...article.querySelectorAll("*")];
   const cloneNodes = [clone, ...clone.querySelectorAll("*")];
-  sourceNodes.forEach((source, index) => copyComputedWechatStyles(source, cloneNodes[index]));
+  sourceNodes.forEach((source, index) => copyComputedWechatStyles(source, cloneNodes[index], rules));
   sourceNodes.forEach((source, index) => {
-    if (source.matches?.("video, .article-live-badge, .article-live-actions")) cloneNodes[index]?.remove();
+    const target = cloneNodes[index];
+    // 主题隐藏的元素（如标题的 .prefix）公众号会照样显示，直接删掉。
+    if (source.matches?.("video, .article-live-badge, .article-live-actions") || window.getComputedStyle(source).display === "none") {
+      target.remove();
+      return;
+    }
+    if (WECHAT_VOID_TAGS.has(source.tagName)) return;
+    const before = wechatPseudoElement(source, "before", rules);
+    const after = wechatPseudoElement(source, "after", rules);
+    if (before) target.prepend(before);
+    if (after) target.append(after);
   });
   clone.querySelectorAll("[data-live-image-id]").forEach((node) => node.removeAttribute("data-live-image-id"));
   clone.querySelectorAll("pre code").forEach(preserveWechatCodeWhitespace);
@@ -10509,7 +10960,7 @@ async function copyArticleToWechat() {
   }
 }
 
-const FEISHU_THEMED_TEXT = "h1, h2, h3, strong, th";
+const FEISHU_THEMED_TEXT = "h1, h2, h3, h4, h5, h6, strong, th";
 let opaqueColorContext = null;
 
 // 主题色里有 color-mix() 和半透明底色，飞书不认，先叠到白底上换成实色；全透明返回空串。
@@ -10573,11 +11024,11 @@ function serializeArticleForFeishu() {
   const form = readForm();
   if (!form.content.trim()) throw new Error("长文内容为空，请先输入正文。");
   // 按当前主题离屏渲染一份，读主题算出来的颜色；不依赖预览区是否已刷新。
+  applyArticleThemeStyle(form);
   const article = document.createElement("article");
-  article.className = `article-preview article-theme-${form.articleTheme} article-font-${form.articleFont} article-size-${form.articleSize}`;
-  article.style.setProperty("--article-accent", form.articleColor);
-  article.style.cssText += ";position:fixed;left:-10000px;top:0";
-  article.innerHTML = markdownToArticleHtml(form.content, form.images);
+  article.className = "article-preview";
+  article.style.cssText = "position:fixed;left:-10000px;top:0";
+  article.innerHTML = markdownToArticleHtml(form.content, form.images, form);
   document.body.append(article);
   const root = article.cloneNode(true);
   const themed = Array.from(root.querySelectorAll(FEISHU_THEMED_TEXT));
@@ -10601,7 +11052,11 @@ function serializeArticleForFeishu() {
   });
   article.remove();
 
-  // 代码块：去掉窗口装饰头，高亮 span 摊平成纯文本，保留原始换行，飞书才会识别成代码块。
+  // 标题里 markdown-nice 结构的装饰 span 和列表项外的 section 拆掉，只留语义标签。
+  root.querySelectorAll(".prefix, .suffix, .article-code-head").forEach((node) => node.remove());
+  root.querySelectorAll(".content, li > section").forEach((node) => node.replaceWith(...node.childNodes));
+
+  // 代码块：高亮 span 摊平成纯文本，保留原始换行，飞书才会识别成代码块。
   root.querySelectorAll("pre").forEach((pre) => {
     const code = document.createElement("code");
     code.textContent = pre.querySelector("code")?.textContent || "";
@@ -14375,9 +14830,11 @@ function articlePrintContent(article, title) {
     .article-preview { width: auto; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: 0; box-shadow: none; }
     .article-preview video, .article-live-badge, .article-live-actions { display: none !important; }
     .article-preview img, .article-preview figure, .article-preview pre, .article-preview blockquote, .article-preview tr { break-inside: avoid; }
-    .article-preview h1, .article-preview h2, .article-preview h3 { break-after: avoid; }
+    .article-preview :is(h1, h2, h3, h4, h5, h6) { break-after: avoid; }
   `;
-  return { head: `${stylesheets}<style>${css}</style>`, body: article.outerHTML };
+  // 主题样式是写在页面里的 <style>，不在样式表链接里，要单独带上
+  const themeCss = els.articleThemeStyle.textContent.replace(/<\/style/gi, "<\\/style");
+  return { head: `${stylesheets}<style>${themeCss}</style><style>${css}</style>`, body: article.outerHTML };
 }
 
 async function cardPrintContent(objectUrls) {
@@ -14531,18 +14988,21 @@ function bindEvents() {
     button.addEventListener("click", (event) => openLatestProjectOfType(event.currentTarget.dataset.appMode));
   });
 
-  els.articleThemeButtons.forEach((button) => {
-    button.addEventListener("click", (event) => setArticleOption("theme", event.currentTarget.dataset.articleTheme));
+  renderArticleThemeOptions();
+  els.articleThemeList.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-article-theme]");
+    if (button) setArticleOption("theme", button.dataset.articleTheme);
   });
-  els.articleFontButtons.forEach((button) => {
-    button.addEventListener("click", (event) => setArticleOption("font", event.currentTarget.dataset.articleFont));
+  els.articleCodeThemeList.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-article-code-theme]");
+    if (button) setArticleOption("codeTheme", button.dataset.articleCodeTheme);
   });
-  els.articleSizeButtons.forEach((button) => {
-    button.addEventListener("click", (event) => setArticleOption("size", event.currentTarget.dataset.articleSize));
+  els.articleMacCode.addEventListener("change", () => setArticleOption("macCode", els.articleMacCode.checked));
+  els.articleSizeList.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-article-size]");
+    if (button) setArticleOption("size", button.dataset.articleSize);
   });
-  els.articleColorButtons.forEach((button) => {
-    button.addEventListener("click", (event) => setArticleOption("color", event.currentTarget.dataset.articleColor));
-  });
+  els.articleCssToggle.addEventListener("click", () => setArticleCssEditorOpen(els.articleCssPanel.hidden));
 
   els.content.addEventListener("input", () => {
     scheduleTextHistoryCommit();
@@ -14737,6 +15197,7 @@ function bindEvents() {
   });
   els.contentImage.addEventListener("change", handleContentImage);
   els.copyPlainText?.addEventListener("click", () => void copyPlainTextToClipboard());
+  els.clearInlineStyles?.addEventListener("click", () => void clearAllInlineStyles());
   els.emojiMenu?.addEventListener("toggle", () => {
     if (els.emojiMenu.open) buildEmojiGrid();
   });
